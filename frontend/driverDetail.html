@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Driver Details</title>
+    <link
+      href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div class="container">
+      <div class="row">
+        <div class="col-md-6">
+          <h2>Driver Details</h2>
+          <table class="table table-bordered">
+            <tr>
+              <td><strong>Full Name</strong></td>
+              <td id="name"></td>
+            </tr>
+            <tr>
+              <td><strong>Email</strong></td>
+              <td id="email"></td>
+            </tr>
+            <tr>
+              <td><strong>Phone Number</strong></td>
+              <td id="phone"></td>
+            </tr>
+            <tr>
+              <td><strong>License Number</strong></td>
+              <td id="license"></td>
+            </tr>
+            <tr>
+              <td><strong>Address</strong></td>
+              <td id="address"></td>
+            </tr>
+          </table>
+        </div>
+
+        <div class="col-md-6">
+          <h2>Vehicle Details</h2>
+          <table class="table table-bordered">
+            <tr>
+              <td><strong>Make</strong></td>
+              <td id="make"></td>
+            </tr>
+            <tr>
+              <td><strong>Model</strong></td>
+              <td id="model"></td>
+            </tr>
+            <!-- Add more rows as needed -->
+          </table>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col-md-12">
+          <h2>Ratings & Reviews</h2>
+          <ul id="reviews" class="list-group"></ul>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/js/bootstrap.min.js"></script>
+    <script src="driverDetails.js"></script>
+  </body>
+</html>

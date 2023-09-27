@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Monthly Reports</title>
+    <link
+      rel="stylesheet"
+      href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css"
+    />
+  </head>
+  <body>
+    <div class="container mt-5">
+      <div class="row">
+        <div class="col-md-12">
+          <h2>Monthly Reports</h2>
+          <button id="downloadBtn" class="btn btn-primary mb-2">
+            Download Reports
+          </button>
+          <table class="table">
+            <thead>
+              <tr>
+                <th scope="col">Month</th>
+                <th scope="col">Total Amount</th>
+                <th scope="col">Transaction Count</th>
+              </tr>
+            </thead>
+            <tbody id="reportTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js"></script>
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        const userId = 1; // Get from session or storage
+        const currency = "INR"; // Get from user preference
+
+        // Fetch Monthly Reports
+        fetch(
+          `http:localhost:3000/api/v1/transactions/${userId}/reports?currency=${currency}`
+        )
+          .then((res) => res.json())
+          .then((data) => {
+            const tableBody = document.getElementById("reportTableBody");
+            data.reports.forEach((report) => {
+              const row = tableBody.insertRow();
+              const cell1 = row.insertCell(0);
+              const cell2 = row.insertCell(1);
+              const cell3 = row.insertCell(2);
+              cell1.innerHTML = report.month;
+              cell2.innerHTML = `${report.currencyCode} ${report.totalAmount}`;
+              cell3.innerHTML = report.transactionCount;
+            });
+          })
+          .catch((err) =>
+            console.error("Error fetching monthly reports:", err)
+          );
+
+        // Download Reports Button Event
+        document
+          .getElementById("downloadBtn")
+          .addEventListener("click", function () {
+            window.location.href = `http:localhost:3000/api/v1/transactions/${userId}/reports/download?language=hi&currency=${currency}`;
+            // Implement appropriate logic to download the report in different languages
+          });
+      });
+    </script>
+  </body>
+</html>

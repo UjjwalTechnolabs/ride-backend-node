@@ -1,0 +1,43 @@
+<!-- driverEarnings.html -->
+<!-- ... -->
+<!-- driverEarnings.html -->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Driver Earnings</title>
+  </head>
+  <body>
+    <div id="earningsContainer">
+      <select id="intervalSelect">
+        <option value="daily">Daily</option>
+        <option value="weekly">Weekly</option>
+        <option value="monthly">Monthly</option>
+        <option value="yearly">Yearly</option>
+      </select>
+
+      <select id="currencySelect">
+        <option value="USD">USD</option>
+        <option value="INR">INR</option>
+        <!-- Add other currencies as needed -->
+      </select>
+      <table id="earningsTable">
+        <tr>
+          <th>Earnings</th>
+          <th>Currency</th>
+        </tr>
+        <!-- Rows will be inserted here -->
+      </table>
+      <select id="intervalSelect">
+        <!-- Your Options Here -->
+      </select>
+
+      <select id="currencySelect">
+        <!-- Your Options Here -->
+      </select>
+    </div>
+    <script src="driverEarnings.js"></script>
+  </body>
+</html>
+
+<button onclick="updateEarnings()">Update</button>

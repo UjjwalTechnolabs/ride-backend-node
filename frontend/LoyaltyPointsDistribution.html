@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Loyalty Points Distribution</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <canvas id="loyaltyPointsChart" width="400" height="200"></canvas>
+    <script>
+      async function fetchDataAndDrawChart() {
+        try {
+          const response = await fetch(
+            "http://localhost:3000/api/v1/analytics/loyalty-points-distribution"
+          );
+          if (!response.ok) throw new Error("Network response was not ok");
+
+          const data = await response.json();
+          drawChart(data);
+        } catch (error) {
+          console.error(
+            "There has been a problem with your fetch operation:",
+            error
+          );
+        }
+      }
+
+      function drawChart(data) {
+        const ctx = document
+          .getElementById("loyaltyPointsChart")
+          .getContext("2d");
+        new Chart(ctx, {
+          type: "pie",
+          data: {
+            labels: data.ranges,
+            datasets: [
+              {
+                data: data.distributions,
+                backgroundColor: [
+                  "rgba(255, 99, 132, 0.2)",
+                  "rgba(54, 162, 235, 0.2)",
+                  "rgba(255, 206, 86, 0.2)",
+                ],
+              },
+            ],
+          },
+        });
+      }
+
+      fetchDataAndDrawChart();
+    </script>
+  </body>
+</html>

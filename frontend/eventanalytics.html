@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>User Analytics</title>
+    <link
+      rel="stylesheet"
+      href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css"
+    />
+  </head>
+  <body>
+    <!-- Some other HTML above -->
+    <div class="container mt-5">
+      <canvas id="graphContainer"></canvas>
+      <!-- Yaha Canvas element add kare -->
+      <table class="table table-bordered mt-5">
+        <thead>
+          <tr>
+            <th>Event Type</th>
+            <th>Event Detail</th>
+          </tr>
+        </thead>
+        <tbody id="eventDataBody"></tbody>
+      </table>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.5.1/chart.min.js"></script>
+    <script src="analytics.js"></script>
+  </body>
+</html>

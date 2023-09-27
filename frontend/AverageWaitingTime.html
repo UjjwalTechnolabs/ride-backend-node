@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Average Waiting Time Analysis</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <canvas id="averageWaitingTimeChart" width="400" height="200"></canvas>
+    <script>
+      async function fetchDataAndDrawChart() {
+        try {
+          const response = await fetch(
+            "http://localhost:3000/api/v1/analytics/average-waiting-time"
+          );
+          if (!response.ok) throw new Error("Network response was not ok");
+
+          const data = await response.json();
+          drawChart(data);
+        } catch (error) {
+          console.error(
+            "There has been a problem with your fetch operation:",
+            error
+          );
+        }
+      }
+
+      function drawChart(data) {
+        const ctx = document
+          .getElementById("averageWaitingTimeChart")
+          .getContext("2d");
+        new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: data.intervals,
+            datasets: [
+              {
+                label: "Average Waiting Time (min)",
+                data: data.times,
+                fill: false,
+                borderColor: "rgb(75, 192, 192)",
+                tension: 0.1,
+              },
+            ],
+          },
+        });
+      }
+
+      fetchDataAndDrawChart();
+    </script>
+  </body>
+</html>

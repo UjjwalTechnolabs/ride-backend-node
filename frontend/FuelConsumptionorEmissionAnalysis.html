@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Fuel Consumption or Emission Analysis</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <canvas id="fuelConsumptionChart" width="400" height="200"></canvas>
+    <script>
+      async function fetchDataAndDrawChart() {
+        try {
+          const response = await fetch(
+            "http://localhost:3000/api/v1/analytics/fuel-consumption"
+          );
+          if (!response.ok) throw new Error("Network response was not ok");
+
+          const data = await response.json();
+          drawChart(data);
+        } catch (error) {
+          console.error(
+            "There has been a problem with your fetch operation:",
+            error
+          );
+        }
+      }
+
+      function drawChart(data) {
+        const ctx = document
+          .getElementById("fuelConsumptionChart")
+          .getContext("2d");
+        new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels: data.vehicleTypes,
+            datasets: [
+              {
+                label: "Fuel Consumption (litres) / Emission (gCO2eq)",
+                data: data.consumptions,
+                backgroundColor: "rgba(255, 99, 132, 0.2)",
+                borderColor: "rgba(255, 99, 132, 1)",
+                borderWidth: 1,
+              },
+            ],
+          },
+          options: {
+            scales: {
+              y: {
+                beginAtZero: true,
+              },
+            },
+          },
+        });
+      }
+
+      fetchDataAndDrawChart();
+    </script>
+  </body>
+</html>

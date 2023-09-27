@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Peak Hours Analysis</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <canvas id="peakHoursChart" width="400" height="200"></canvas>
+    <script>
+      async function fetchDataAndDrawChart() {
+        try {
+          const response = await fetch(
+            "http://localhost:3000/api/v1/analytics/peak-hours-analysis"
+          );
+          if (!response.ok) throw new Error("Network response was not ok");
+
+          const data = await response.json();
+          drawChart(data);
+        } catch (error) {
+          console.error(
+            "There has been a problem with your fetch operation:",
+            error
+          );
+        }
+      }
+
+      function drawChart(data) {
+        const ctx = document.getElementById("peakHoursChart").getContext("2d");
+        new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels: data.hours,
+            datasets: [
+              {
+                label: "# of Rides",
+                data: data.counts,
+                backgroundColor: "rgba(75, 192, 192, 0.2)",
+                borderColor: "rgba(75, 192, 192, 1)",
+                borderWidth: 1,
+              },
+            ],
+          },
+          options: {
+            scales: {
+              y: {
+                beginAtZero: true,
+              },
+            },
+          },
+        });
+      }
+
+      fetchDataAndDrawChart();
+    </script>
+  </body>
+</html>

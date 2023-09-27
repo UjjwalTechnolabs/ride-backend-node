@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Popular Routes Analysis</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <canvas id="popularRoutesChart" width="400" height="200"></canvas>
+    <script>
+      async function fetchDataAndDrawChart() {
+        try {
+          const response = await fetch(
+            "http://localhost:3000/api/v1/analytics/popular-routes"
+          );
+          if (!response.ok) throw new Error("Network response was not ok");
+
+          const data = await response.json();
+          drawChart(data);
+        } catch (error) {
+          console.error(
+            "There has been a problem with your fetch operation:",
+            error
+          );
+        }
+      }
+
+      function drawChart(data) {
+        const ctx = document
+          .getElementById("popularRoutesChart")
+          .getContext("2d");
+        new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels: data.routes.map((route) => truncateLabel(route, 10)),
+            datasets: [
+              {
+                label: "# of Rides",
+                data: data.counts,
+                backgroundColor: "rgba(75, 192, 192, 0.2)",
+                borderColor: "rgba(75, 192, 192, 1)",
+                borderWidth: 1,
+              },
+            ],
+          },
+          options: {
+            scales: {
+              y: {
+                beginAtZero: true,
+              },
+              x: {
+                ticks: {
+                  autoSkip: true,
+                  maxRotation: 0,
+                  minRotation: 0,
+                  font: {
+                    size: 10, // Adjust as needed
+                  },
+                },
+              },
+            },
+            plugins: {
+              tooltip: {
+                callbacks: {
+                  title: function (context) {
+                    // Return the full, untruncated label for the tooltip
+                    const index = context[0].dataIndex;
+                    return data.routes[index];
+                  },
+                },
+              },
+            },
+          },
+        });
+      }
+
+      function truncateLabel(str, maxLen) {
+        return str.length > maxLen ? str.substr(0, maxLen - 1) + "…" : str;
+      }
+
+      fetchDataAndDrawChart();
+    </script>
+  </body>
+</html>

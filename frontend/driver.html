@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Driver Management</title>
+    <link
+      rel="stylesheet"
+      href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css"
+    />
+  </head>
+  <body>
+    <div class="container mt-5">
+      <div class="filter-options mb-4">
+        <select id="statusFilter">
+          <option value="">All</option>
+          <option value="ONLINE">Online</option>
+          <option value="OFFLINE">Offline</option>
+          <option value="ON_BREAK">On Break</option>
+          <option value="ON_TRIP">On Trip</option>
+        </select>
+
+        <select id="sortBy">
+          <option value="">Sort By</option>
+          <option value="name">Name</option>
+          <option value="experience">Registration Date</option>
+        </select>
+
+        <select id="order">
+          <option value="ASC">Ascending</option>
+          <option value="DESC">Descending</option>
+        </select>
+
+        <button onclick="fetchDriverList()">Apply</button>
+      </div>
+
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Status</th>
+            <th>Location</th>
+            <th>Vehicle</th>
+            <th>Documents</th>
+          </tr>
+        </thead>
+        <tbody id="driverListBody">
+          <div id="driverListContainer"></div>
+        </tbody>
+      </table>
+      <div class="pagination">
+        <button onclick="prevPage()">Previous</button>
+        <span id="currentPage">1</span>/<span id="totalPages">1</span>
+        <button onclick="nextPage()">Next</button>
+      </div>
+    </div>
+
+    <script src="driver.js"></script>
+  </body>
+</html>

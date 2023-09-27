@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Driver 1</title>
+  </head>
+  <body>
+    <h2>Driver 1</h2>
+    <div id="notification"></div>
+    <div id="notification"></div>
+    <button id="acceptButton" onclick="acceptRide()" style="display: none">
+      Accept Ride
+    </button>
+    <button id="rejectButton" onclick="rejectRide()" style="display: none">
+      Reject Ride
+    </button>
+    <button id="enRouteButton" onclick="driverEnRoute()" style="display: none">
+      En Route
+    </button>
+    <button id="arrivedButton" onclick="driverArrived()" style="display: none">
+      Arrived at Pickup
+    </button>
+    <button id="startRideButton" onclick="rideStarted()" style="display: none">
+      Start Ride
+    </button>
+    <button id="offlineButton" onclick="goOffline()">Go Offline</button>
+
+    <button
+      id="completeRideButton"
+      onclick="rideCompleted()"
+      style="display: none"
+    >
+      Complete Ride
+    </button>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script>
+      let driverHasResponded = false; // flag to check if driver responded within the timeframe
+
+      const socket = io.connect("http://localhost:3000");
+      const driverId = 2; // Driver 1's unique ID
+      let currentRideDetails = null; // To store the current ride details
+      let locationUpdateInterval = null;
+
+      socket.on("connect", () => {
+        console.log("Connected to the socket server");
+        socket.emit("identifyDriver", driverId);
+        socket.emit("joinAvailableDrivers");
+      });
+
+      // socket.on("ride-request", (rideDetails) => {
+      //   currentRideDetails = rideDetails; // Store the ride details for later reference
+      //   document.getElementById(
+      //     "notification"
+      //   ).innerText = `New ride request from ${rideDetails.pickupLocation} to ${rideDetails.dropoffLocation}`;
+      //   document.getElementById("acceptButton").style.display = "block";
+      // });
+      socket.on("ride-request", (rideDetails) => {
+        driverHasResponded = false;
+        currentRideDetails = rideDetails;
+
+        document.getElementById(
+          "notification"
+        ).innerText = `New ride request from ${rideDetails.pickupLocation} to ${rideDetails.dropoffLocation}`;
+        document.getElementById("acceptButton").style.display = "block";
+        document.getElementById("rejectButton").style.display = "block";
+
+        //setTimeout(() => {
+        // if (!driverHasResponded) {
+        //   var rideId = currentRideDetails.rideId;
+        //   var pickupLocation = currentRideDetails.pickupLocation;
+        //   socket.emit("driver-no-response", {
+        //     rideId,
+        //     driverId,
+        //     status: "no response",
+        //     pickupLocation: pickupLocation,
+        //   });
+
+        //   document.getElementById("acceptButton").style.display = "none";
+        //   document.getElementById("rejectButton").style.display = "none";
+        // }
+        //}, 30000); // 30 seconds timeout
+      });
+      socket.on("ride-accepted", (data) => {
+        if (data.driverId === driverId) {
+          console.log("You've accepted the ride!");
+          document.getElementById("notification").innerText =
+            "You've accepted the ride!";
+        } else {
+          console.log("rideTaken by other");
+          document.getElementById("notification").innerText =
+            "Ride taken by another driver";
+        }
+        document.getElementById("acceptButton").style.display = "none";
+        document.getElementById("rejectButton").style.display = "none";
+      });
+
+      socket.on("driver-enroute", (data) => {
+        console.log(data);
+        if (data.driverId === driverId) {
+          document.getElementById(
+            "notification"
+          ).innerText = `You are en route for ride ${data.rideId}`;
+          document.getElementById("enRouteButton").style.display = "none";
+          document.getElementById("arrivedButton").style.display = "block";
+        }
+      });
+
+      socket.on("driver-arrived", (data) => {
+        if (data.driverId === driverId) {
+          document.getElementById(
+            "notification"
+          ).innerText = `You have arrived for ride ${data.rideId}`;
+          document.getElementById("arrivedButton").style.display = "none";
+          document.getElementById("startRideButton").style.display = "block";
+        }
+      });
+
+      socket.on("ride-started", (data) => {
+        if (data.driverId === driverId) {
+          document.getElementById(
+            "notification"
+          ).innerText = `You have started the ride ${data.rideId}`;
+          document.getElementById("startRideButton").style.display = "none";
+          document.getElementById("completeRideButton").style.display = "block";
+        }
+      });
+
+      socket.on("ride-completed", (data) => {
+        if (data.driverId === driverId) {
+          document.getElementById(
+            "notification"
+          ).innerText = `You have completed the ride ${data.rideId}`;
+          document.getElementById("completeRideButton").style.display = "none";
+        }
+      });
+
+      function acceptRide() {
+        if (currentRideDetails) {
+          console.log(currentRideDetails);
+          driverHasResponded = true;
+          startLocationUpdates();
+          var rideId = currentRideDetails.rideId;
+          socket.emit("driver-response", {
+            rideId,
+            driverId,
+            status: "accepted",
+          });
+          document.getElementById("notification").innerText =
+            "You've accepted the ride!";
+          document.getElementById("acceptButton").style.display = "none";
+          document.getElementById("rejectButton").style.display = "none";
+          document.getElementById("enRouteButton").style.display = "block";
+          socket.emit("joinRideRoom", currentRideDetails.rideId);
+        }
+      }
+      function getRandomLocation() {
+        const lat = (Math.random() * (90 - -90) + -90).toFixed(6);
+        const lng = (Math.random() * (180 - -180) + -180).toFixed(6);
+        return { lat, lng };
+      }
+      function startLocationUpdates() {
+        // First, clear any existing intervals.
+        if (locationUpdateInterval) {
+          clearInterval(locationUpdateInterval);
+        }
+
+        // Now start a new interval.
+        locationUpdateInterval = setInterval(() => {
+          const location = getRandomLocation();
+          socket.emit("send-driver-location", {
+            rideId: currentRideDetails.rideId,
+            location: location,
+          });
+        }, 5000);
+      }
+
+      // When the driver starts the route to pick up the user
+      function driverEnRoute() {
+        const data = { rideId: currentRideDetails.rideId };
+        socket.emit("enRoute", data);
+        console.log("emitted enRoute with data:", data);
+      }
+
+      // When the driver arrives at the user's location
+      function driverArrived() {
+        const data = { rideId: currentRideDetails.rideId };
+
+        socket.emit("arrived", data);
+      }
+
+      // When the driver starts the actual ride with the user
+      function rideStarted() {
+        const data = { rideId: currentRideDetails.rideId };
+        socket.emit("rideStarted", data);
+      }
+      function goOffline() {
+        socket.emit("goOffline");
+      }
+
+      // When the driver completes the ride
+      // function rideCompleted() {
+      //   // const data = { rideId: currentRideDetails.rideId };
+      //   var rideId = currentRideDetails.rideId;
+      //   socket.emit("rideCompleted", rideId);
+      //   clearInterval(locationUpdateInterval);
+      //   locationUpdateInterval = null;
+      // }
+      function rideCompleted() {
+        const data = {
+          rideId: currentRideDetails.rideId,
+          actualDistance: 20.5, // यहां पर आपको वास्तविक दूरी सेट करनी होगी
+          dropoffLocation: [22.718281, 75.855324],
+        };
+        socket.emit("rideCompleted", data);
+        clearInterval(locationUpdateInterval);
+        locationUpdateInterval = null;
+      }
+
+      function rejectRide() {
+        if (currentRideDetails) {
+          driverHasResponded = true;
+          var rideId = currentRideDetails.rideId;
+          socket.emit("driver-response", {
+            rideId,
+            driverId,
+            status: "rejected",
+          });
+          document.getElementById("notification").innerText =
+            "You've rejected the ride!";
+          document.getElementById("acceptButton").style.display = "none";
+          document.getElementById("rejectButton").style.display = "none";
+        }
+      }
+    </script>
+  </body>
+</html>

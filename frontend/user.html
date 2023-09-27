@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>User Ride Status</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        text-align: center;
+        margin-top: 50px;
+      }
+
+      #user-notification {
+        border: 1px solid #ddd;
+        padding: 15px;
+        margin: 20px;
+        display: inline-block;
+        background-color: #f4f4f4;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Ride Status</h2>
+    <div id="user-notification">Awaiting ride updates...</div>
+    <button id="panic-button" onclick="sendPanicAlert()">Panic Alert</button>
+    <div id="chatContainer" style="display: none">
+      <ul id="messageList"></ul>
+      <input type="text" id="messageInput" placeholder="Type a message" />
+      <button onclick="sendMessage()">Send</button>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script>
+      const socket = io.connect("http://localhost:3000");
+      let userLocation;
+      let currentRideId;
+      socket.on("connect", () => {
+        console.log("Connected to the socket server");
+        // You can add any user-specific initialization here, like joining a room
+        const userId = 200; // For demonstration, replace with actual user ID logic
+
+        socket.emit("joinRideRoom", userId);
+        socket.on("test-event", (data) => {
+          console.log("Received test event:", data);
+        });
+      });
+
+      // Capture ride status updates
+      socket.on("driver-enroute", (data) => {
+        console.log("Received driver-enroute event:", data);
+        currentRideId = data.rideId;
+        onRideStart(data.rideId);
+        document.getElementById(
+          "user-notification"
+        ).innerText = `Your driver is on the way.`;
+      });
+      socket.on("update-driver-location", (location) => {
+        const notificationElement =
+          document.getElementById("user-notification");
+        notificationElement.innerText = `Driver's current location: Latitude: ${location.lat}, Longitude: ${location.lng}`;
+      });
+
+      socket.on("receiveMessage", (data) => {
+        console.log(data);
+        const { message, senderType, timestamp } = data;
+        const messageList = document.getElementById("messageList");
+        const newMessage = document.createElement("li");
+        newMessage.textContent = `${timestamp} - ${senderType}: ${message}`;
+        messageList.appendChild(newMessage);
+      });
+      socket.on("driver-arrived", (data) => {
+        document.getElementById(
+          "user-notification"
+        ).innerText = `Your driver ${data.driverName} has arrived at your location.`;
+      });
+
+      socket.on("rideStarted", (data) => {
+        document.getElementById(
+          "user-notification"
+        ).innerText = `Your ride with ${data.driverName} has started. Enjoy the journey!`;
+      });
+      socket.on("disconnect", (reason) => {
+        console.log(`Disconnected from the server due to: ${reason}`);
+        // You can execute any logic here. For instance:
+        document.getElementById("user-notification").innerText =
+          "Disconnected from the server. Please refresh or try again later.";
+      });
+      socket.on("rideCompleted", (data) => {
+        document.getElementById(
+          "user-notification"
+        ).innerText = `Your ride with ${data.driverName} has been completed. Thank you for riding with us!`;
+      });
+      let currentRide;
+      async function fetchCurrentRide() {
+        const userId = 1; // You'll want to fetch or determine this dynamically
+        const response = await fetch(
+          `http://localhost:3000/api/v1/rides/currentRide/${userId}`
+        );
+        const data = await response.json();
+
+        if (data && data.id) {
+          currentRide = data;
+          document.getElementById(
+            "rideStatus"
+          ).innerText = `Ongoing ride with driver ${currentRide.driver.name}.`;
+
+          // Initialize socket connection and resume listening for driver updates
+          const socket = io.connect("YOUR_SOCKET_SERVER_URL");
+
+          socket.on("update-driver-location", (location) => {
+            const notificationElement =
+              document.getElementById("user-notification");
+            notificationElement.innerText = `Driver's current location: Latitude: ${location.lat}, Longitude: ${location.lng}`;
+          });
+
+          // Other socket listeners for this ride can be initialized here
+        } else {
+          document.getElementById("rideStatus").innerText =
+            "No ongoing ride found.";
+        }
+      }
+      function onRideStart(rideId) {
+        socket.emit("joinChatRoom", rideId);
+        document.getElementById("chatContainer").style.display = "block";
+      }
+      function sendMessage() {
+        const message = document.getElementById("messageInput").value;
+        if (message) {
+          socket.emit("sendMessage", {
+            rideId: currentRideId,
+            message,
+            senderType: "user",
+          });
+        }
+      }
+      function sendPanicAlert() {
+        let userLocation = null;
+
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            userLocation = {
+              userId: 1,
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+            };
+
+            // Send location to server via socket
+            socket.emit("updateLocation", userLocation);
+
+            // Send panic alert to server
+            // fetch("http://localhost:3000/api/v1/panic-alert", {
+            //   method: "POST",
+            //   headers: {
+            //     "Content-Type": "application/json",
+            //   },
+            //   body: JSON.stringify({
+            //     userId: 1,
+            //     latitude: userLocation.latitude,
+            //     longitude: userLocation.longitude,
+            //     panicStatus: true,
+            //   }),
+            // })
+            //   .then((response) => response.json())
+            //   .then((data) => {
+            //     document.getElementById("user-notification").innerText =
+            //       data.message || "Panic alert sent!";
+            //   })
+            //   .catch((error) => {
+            //     console.error("Error sending panic alert:", error);
+            //     document.getElementById("user-notification").innerText =
+            //       "Error sending panic alert. Try again.";
+            //   });
+          },
+          (error) => {
+            console.error("Error fetching location:", error);
+            document.getElementById("user-notification").innerText =
+              "Location not available. Try again.";
+          }
+        );
+      }
+
+      // When page loads, fetch the current ride
+      window.onload = fetchCurrentRide;
+    </script>
+  </body>
+</html>

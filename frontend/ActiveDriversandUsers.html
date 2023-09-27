@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Active Drivers and Users Analysis</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <canvas id="activeUsersAndDriversChart" width="400" height="200"></canvas>
+    <script>
+      async function fetchDataAndDrawChart() {
+        try {
+          const response = await fetch(
+            "http://localhost:3000/api/v1/analytics/active-drivers-users"
+          );
+          if (!response.ok) throw new Error("Network response was not ok");
+
+          const data = await response.json();
+          drawChart(data);
+        } catch (error) {
+          console.error(
+            "There has been a problem with your fetch operation:",
+            error
+          );
+        }
+      }
+
+      function drawChart(data) {
+        const ctx = document
+          .getElementById("activeUsersAndDriversChart")
+          .getContext("2d");
+
+        new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels: ["Active Drivers", "Active Users"],
+            datasets: [
+              {
+                label: "# of Active Drivers and Users",
+                data: [data.activeDrivers, data.activeUsers],
+                backgroundColor: [
+                  "rgba(75, 192, 192, 0.2)",
+                  "rgba(255, 206, 86, 0.2)",
+                ],
+                borderColor: ["rgba(75, 192, 192, 1)", "rgba(255, 206, 86, 1)"],
+                borderWidth: 1,
+              },
+            ],
+          },
+          options: {
+            scales: {
+              y: {
+                beginAtZero: true,
+              },
+            },
+          },
+        });
+      }
+
+      fetchDataAndDrawChart();
+    </script>
+  </body>
+</html>

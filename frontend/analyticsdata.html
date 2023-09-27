@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Analytics Dashboard</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  </head>
+  <body>
+    <div id="ride-requests-chart"></div>
+    <script>
+      // Replace with your actual endpoint
+      const analyticsEndpoint =
+        "http://localhost:3000/api/v1/analytics/ride-requests";
+
+      fetch(analyticsEndpoint)
+        .then((response) => response.json())
+        .then((data) => {
+          const trace = {
+            x: data.map((item) => item.date),
+            y: data.map((item) => item.requests),
+            type: "bar",
+          };
+
+          const layout = {
+            title: "Ride Requests Frequency",
+            xaxis: { title: "Date" },
+            yaxis: { title: "Number of Requests" },
+          };
+
+          Plotly.newPlot("ride-requests-chart", [trace], layout);
+        })
+        .catch((error) =>
+          console.error("Error fetching analytics data:", error)
+        );
+    </script>
+  </body>
+</html>

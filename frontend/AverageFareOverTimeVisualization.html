@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Average Fare Over Time</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Including the Chart.js Library -->
+  </head>
+  <body>
+    <canvas id="averageFareChart" width="400" height="200"></canvas>
+    <!-- Canvas element where the chart will be drawn -->
+    <script>
+      async function fetchDataAndDrawChart() {
+        try {
+          const response = await fetch(
+            "http://localhost:3000/api/v1/analytics/average-fare-over-time"
+          );
+          if (!response.ok) throw new Error("Network response was not ok");
+
+          const data = await response.json();
+          drawChart(data);
+        } catch (error) {
+          console.error(
+            "There has been a problem with your fetch operation:",
+            error
+          );
+        }
+      }
+
+      function drawChart(data) {
+        const ctx = document
+          .getElementById("averageFareChart")
+          .getContext("2d");
+
+        // Processing the data
+        const labels = data.map((item) => item.date);
+        const dataSet = data.map((item) => item.averageFare);
+
+        new Chart(ctx, {
+          type: "line", // Change to 'bar' if you prefer
+          data: {
+            labels: labels, // Dates
+            datasets: [
+              {
+                label: "Average Fare",
+                data: dataSet, // Fare values
+                fill: false,
+                borderColor: "rgb(75, 192, 192)",
+                tension: 0.1,
+              },
+            ],
+          },
+        });
+      }
+
+      fetchDataAndDrawChart();
+    </script>
+  </body>
+</html>
