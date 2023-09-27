@@ -1,14 +1,24 @@
-const { Ride, Driver, NotifiedDriver } = require("../../models");
+const {
+  Ride,
+  Driver,
+  NotifiedDriver,
+  LoyaltyPoints,
+  EmergencyContacts,
+} = require("../../models");
 const { Op, Sequelize } = require("sequelize");
 const { handleDriverAcceptance, assignDriver } = require("./driverService");
 const {
   updateDriverStatusForRide,
   logNotifiedDriver,
 } = require("./rideService");
-
+const { calculateFare, calculateETA } = require("../utils/fareUtils");
+const { sendSMS } = require("../controllers/alertController");
+const app = require("../app");
 let io;
 let driversAttempted = {};
 let driverSocketMap = {}; // Outside the connection listener
+
+let locations = {}; // This will store the last sent location
 
 exports.initializeSocketIO = (socketIOInstance) => {
   io = socketIOInstance;
@@ -16,9 +26,106 @@ exports.initializeSocketIO = (socketIOInstance) => {
   io.on("connection", (socket) => {
     console.log(`User connected with socket ID: ${socket.id}`);
 
+    socket.on("driver-online", (data) => {
+      const driverId = data.driverId;
+      driverSocketMap[socket.id] = driverId;
+
+      console.log(
+        `Driver ${driverId} is now online with socket id ${socket.id}`
+      );
+    });
+    socket.on("updateDriverLocation", (data) => {
+      // Extract driverId and location from data
+      const { driverId, latitude, longitude } = data;
+
+      // Emit the location update event to the frontend
+      io.emit("driverLocationUpdated", { latitude, longitude });
+    });
+    socket.on("updateLocation", async (data) => {
+      console.log(data);
+
+      // Check if userId is present in the data
+      if (data && data.userId) {
+        const userId = data.userId;
+
+        // Fetch the emergency contacts for this user from the database
+        const contacts = await EmergencyContacts.findAll({ where: { userId } });
+
+        // Send an alert/notification to all emergency contacts
+        contacts.forEach((contact) => {
+          // Send SMS
+          const message = `User ${contact.contactName} is in danger! Location: https://rider-backend.ngrok.io/alert/${userId}`;
+          // sendSMS(contact.contactNumber, message);
+
+          // Send WhatsApp Message
+          // sendWhatsAppMessage(contact.contactNumber, message);
+        });
+
+        // Store user's location
+        locations[userId] = {
+          latitude: data.latitude,
+          longitude: data.longitude,
+        };
+
+        // Emit location update for that specific user
+        io.emit(`showLocation:${userId}`, locations[userId]);
+      }
+    });
+
+    // socket.on("updateLocation", async (data) => {
+    //   console.log(data);
+    //   // Fetch the emergency contacts for this user from the database
+    //   const userId = 1;
+    //   const contacts = await EmergencyContacts.findAll({ where: { userId } });
+
+    //   // Send an alert/notification to all emergency contacts
+    //   contacts.forEach((contact) => {
+    //     // Send SMS
+    //     const message = `User ${contact.contactName} is in danger! Location: https://rider-backend.ngrok.io/alert/1`;
+    //     // sendSMS(contact.contactNumber, message);
+
+    //     // Send WhatsApp Message//contactWhatsAppNumber
+    //     //sendWhatsAppMessage(contact.contactNumber, message);
+    //   });
+    //   if (data.userId) {
+    //     locations[data.userId] = {
+    //       latitude: data.latitude,
+    //       longitude: data.longitude,
+    //     };
+    //     io.emit("showLocation" + data.userId, locations[data.userId]);
+    //   }
+    // });
+    socket.on("joinChatRoom", (rideId) => {
+      socket.join(`chat:${rideId}`);
+      console.log(`Joined chat room for ride: ${rideId}`);
+    });
+    socket.on("sendMessage", (data) => {
+      console.log(data);
+      const { rideId, message, senderType } = data;
+      io.to(`chat:${rideId}`).emit("receiveMessage", {
+        message,
+        senderType,
+        timestamp: new Date(),
+      });
+    });
     socket.on("disconnect", (reason) => {
-      delete driverSocketMap[socket.id];
+      if (driverSocketMap[socket.id]) {
+        console.log(
+          `Driver with ID ${driverSocketMap[socket.id]} disconnected.`
+        );
+        delete driverSocketMap[socket.id];
+      }
       console.log(`Client ${socket.id} disconnected due to: ${reason}`);
+    });
+    socket.on("goOffline", () => {
+      console.log(`Driver with socket ID ${socket.id} is going offline`);
+
+      // Update the driver's status in the database
+      const driverId = driverSocketMap[socket.id];
+      if (driverId) {
+        Driver.update({ onlineStatus: "OFFLINE" }, { where: { id: driverId } });
+        delete driverSocketMap[socket.id];
+      }
     });
 
     socket.on("identifyDriver", (driverId) => {
@@ -45,6 +152,7 @@ exports.initializeSocketIO = (socketIOInstance) => {
     });
 
     socket.on("enRoute", (data) => {
+      console.log(data);
       const { rideId } = data;
       const actualDriverId = driverSocketMap[socket.id]; // Get actual driver ID
 
@@ -83,32 +191,84 @@ exports.initializeSocketIO = (socketIOInstance) => {
       io.to(rideId).emit("update-driver-location", location);
     });
 
-    socket.on("rideCompleted", async (rideId) => {
+    socket.on("rideCompleted", async (data) => {
+      console.log(data);
       try {
         const actualDriverId = driverSocketMap[socket.id];
         // Update the Ride table status to 'COMPLETED'
-        await Ride.update({ status: "COMPLETED" }, { where: { id: rideId } });
+        //await Ride.update({ status: "COMPLETED" }, { where: { id: rideId } });
+        // वास्तविक दूरी और वाहन के प्रकार से किराया की गणना
+        const ride = await Ride.findByPk(data.rideId);
+        const actualFare = await calculateFare(
+          data.actualDistance,
+          ride.vehicleTypeKey
+        );
+
+        // ETA की गणना
+        const receivedDropoff = {
+          type: "Point",
+          coordinates: data.dropoffLocation, // यह आपके एप्लिकेशन से प्राप्त डेटा होगा
+        };
+        ride.dropoffLocation = receivedDropoff;
+
+        const updatedEta = await calculateETA(
+          ride.pickupLocation.coordinates,
+          ride.dropoffLocation.coordinates
+        );
+        const etaString = `${updatedEta} mins`;
+
+        // Update the Ride table with status, actual fare, ETA, and actual distance
+        // Add loyalty points for the user based on fare
+        const pointsToAdd = calculateLoyaltyPoints(actualFare);
+
+        let loyaltyPoints = await LoyaltyPoints.findOne({
+          where: { userId: ride.userId },
+        });
+
+        if (!loyaltyPoints) {
+          loyaltyPoints = await LoyaltyPoints.create({
+            userId: ride.userId,
+            points: pointsToAdd,
+          });
+        } else {
+          loyaltyPoints.points += pointsToAdd;
+          await loyaltyPoints.save();
+        }
+
+        await Ride.update(
+          {
+            dropoffLocation: receivedDropoff,
+            status: "COMPLETED",
+            fare: actualFare,
+            ETA: etaString,
+            pickedUpAt: new Date(),
+          },
+          { where: { id: data.rideId } }
+        );
 
         // Update the NotifiedDriver table status for this driver to 'accepted' for this ride
         // This assumes your ride requests to drivers are stored with a status like 'notified' or 'accepted'
         await NotifiedDriver.update(
           { status: "accepted" },
-          { where: { rideRequestId: rideId, driverId: actualDriverId } }
+          { where: { rideRequestId: data.rideId, driverId: actualDriverId } }
         );
         await Driver.update(
           { onlineStatus: "ONLINE" },
           { where: { id: actualDriverId } } // Assuming the socket ID corresponds to the driver's ID
         );
-
-        io.to(rideId).emit("ride-completed", {
-          rideId,
+        var rId = data.rideId;
+        io.to(data.rideId).emit("ride-completed", {
+          rId,
           driverId: actualDriverId,
         });
-        delete driverSocketMap[socket.id];
-        console.log(`Driver ${actualDriverId} has completed ride ${rideId}`);
+        socket.leave(`chat:${data.rideId}`);
+        //delete driverSocketMap[socket.id];
+        console.log(
+          `Driver ${actualDriverId} has completed ride ${data.rideId}`
+        );
       } catch (error) {
         console.error(
-          `Error updating status for completed ride ${rideId}:`,
+          `Error updating status for completed ride ${data.rideId}:`,
           error
         );
       }
@@ -264,6 +424,7 @@ exports.removeDriverFromAvailable = (driverId) => {
     console.log(`Driver ${driverId} is no longer available.`);
   }
 };
+
 const getAvailableDrivers = async (pickupLocation, excludeDriverIds = []) => {
   return Driver.findAll({
     where: {
@@ -295,3 +456,10 @@ const getAvailableDrivers = async (pickupLocation, excludeDriverIds = []) => {
     limit: 5,
   });
 };
+function calculateLoyaltyPoints(fare) {
+  // For example, 1 point for every 10 rupees spent
+  return Math.floor(fare / 10);
+}
+app.get("/last-location/:userId", (req, res) => {
+  res.json(locations[req.params.userId] || {});
+});

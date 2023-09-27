@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Emergency Alert</title>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBLmcwFlQ68ZbfyQXTQql8Im8AO-aofTy4"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+  </head>
+  <body>
+    <div id="map" style="height: 500px; width: 100%"></div>
+
+    <script>
+      let map;
+      const socket = io.connect("https://rider-backend.ngrok.io");
+      const userId = "1"; // You need to fetch or set this based on your app's logic
+
+      function initMap(latitude, longitude) {
+        const myLatLng = { lat: latitude, lng: longitude };
+        map = new google.maps.Map(document.getElementById("map"), {
+          center: myLatLng,
+          zoom: 15,
+        });
+        new google.maps.Marker({
+          position: myLatLng,
+          map: map,
+        });
+      }
+      fetch("https://rider-backend.ngrok.io/last-location/$userId}")
+        .then((response) => response.json())
+        .then((data) => {
+          if (data.latitude && data.longitude) {
+            initMap(data.latitude, data.longitude);
+          }
+        })
+        .catch((error) => {
+          console.error("Error fetching last location:", error);
+        });
+      // socket.on("showLocation" + userId, (data) => {
+      //   console.log(data);
+      //   initMap(data.latitude, data.longitude);
+      // });
+      socket.on(`showLocation:${userId}`, (data) => {
+        console.log(data);
+        initMap(data.latitude, data.longitude);
+      });
+    </script>
+  </body>
+</html>

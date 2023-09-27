@@ -16,6 +16,7 @@ if (config.use_env_variable) {
       freezeTableName: true,
     },
   });
+  //ngrok config add-authtoken 2VkemM2EtQwHjgkyw4spIIDvB5z_2gaShTz6jxAyXUV9n8vb6
 } else {
   sequelize = new Sequelize(
     config.database,

@@ -40,6 +40,11 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.JSONB, // Can store settings as JSON. E.g., { sms: true, email: false }
       allowNull: true,
     },
+    preferredCurrency: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: "USD",
+    },
   });
 
   Driver.associate = (models) => {

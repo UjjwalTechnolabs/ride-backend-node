@@ -24,6 +24,10 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING,
       allowNull: false,
     },
+    energyType: {
+      type: DataTypes.STRING, // electric, hybrid, petrol, etc.
+      allowNull: false,
+    },
   });
 
   Vehicle.associate = (models) => {

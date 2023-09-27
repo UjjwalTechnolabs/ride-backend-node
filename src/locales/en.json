@@ -1,0 +1,10 @@
+{
+  "translation": {
+    "transaction": {
+      "userId": "User ID",
+      "amount": "Amount",
+      "currencyCode": "Currency Code",
+      "createdAt": "Created At"
+    }
+  }
+}

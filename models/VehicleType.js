@@ -13,6 +13,11 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.INTEGER, // Speed in km/h
       allowNull: false,
     },
+    fuelConsumption: {
+      // Added this field
+      type: DataTypes.FLOAT, // Fuel consumption per km
+      allowNull: false,
+    },
     // ... any other configurations/attributes
   });
 

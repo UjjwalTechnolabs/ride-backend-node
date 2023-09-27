@@ -1,4 +1,12 @@
-const { Ride, User, VehicleType, Driver, sequelize } = require("../../models");
+const {
+  Ride,
+  User,
+  VehicleType,
+  Driver,
+  sequelize,
+  LoyaltyPoints,
+  Location,
+} = require("../../models");
 const { calculateFare, calculateETA } = require("../utils/fareUtils");
 const { getDistance } = require("geolib");
 const rideNotificationService = require("../services/rideNotificationService");
@@ -12,13 +20,13 @@ const {
 
 exports.bookRide = async (req, res) => {
   const transaction = await sequelize.transaction();
+
   try {
-    const { userId, pickupLocation, dropoffLocation, vehicleTypeName } =
-      req.body;
+    const { userId, pickupLocation, dropoffLocation, vehicleTypeId } = req.body;
 
     const vehicleType = await VehicleType.findOne(
       {
-        where: { name: vehicleTypeName },
+        where: { id: vehicleTypeId },
       },
       { transaction }
     );
@@ -39,11 +47,11 @@ exports.bookRide = async (req, res) => {
         message: "User does not exist.",
       });
     }
-
+    const userCurrencyCode = user.currency_code;
     const distance =
       getDistance(
-        { latitude: pickupLocation[1], longitude: pickupLocation[0] },
-        { latitude: dropoffLocation[1], longitude: dropoffLocation[0] }
+        { latitude: pickupLocation[0], longitude: pickupLocation[1] },
+        { latitude: dropoffLocation[0], longitude: dropoffLocation[1] }
       ) / 1000;
 
     const eta = await calculateETA(pickupLocation, dropoffLocation);
@@ -55,7 +63,36 @@ exports.bookRide = async (req, res) => {
       });
     }
 
-    const fare = await calculateFare(distance, vehicleTypeName);
+    //const fare = await calculateFare(distance, vehicleTypeId);
+    const serviceType = vehicleType.name; // Assuming that 'name' is the field containing the service type in VehicleType model
+
+    const location = await decideLocation(pickupLocation, dropoffLocation); // Using await to wait for the decideLocation function
+
+    const fare = await calculateFare(
+      distance,
+      vehicleTypeId,
+      userCurrencyCode,
+      serviceType,
+      location
+    );
+
+    const pointsToAdd = Math.floor(fare / 10); // ₹100 की राइड पर 10 पॉइंट्स मिलेंगे, इसलिए fare को 10 से डिवाइड करते हैं।
+    let loyaltyPoints = await LoyaltyPoints.findOne(
+      {
+        where: { userId },
+      },
+      { transaction }
+    );
+
+    if (!loyaltyPoints) {
+      loyaltyPoints = await LoyaltyPoints.create(
+        { userId, points: pointsToAdd },
+        { transaction }
+      );
+    } else {
+      loyaltyPoints.points += pointsToAdd;
+      await loyaltyPoints.save({ transaction });
+    }
 
     const newRide = await Ride.create(
       {
@@ -65,6 +102,8 @@ exports.bookRide = async (req, res) => {
         vehicleTypeKey: vehicleType.id,
         fare: fare,
         ETA: `${eta} mins`,
+        requestedAt: new Date(),
+        fuelConsumption: distance * vehicleType.fuelConsumption,
       },
       { transaction }
     );
@@ -82,7 +121,7 @@ exports.bookRide = async (req, res) => {
 
     await transaction.commit();
     await assignDriver(newRide.id, pickupLocation);
-    broadcastRideCreation(newRide.id);
+    //broadcastRideCreation(newRide.id);
     res.status(201).json({
       status: "success",
       data: {
@@ -99,9 +138,9 @@ exports.bookRide = async (req, res) => {
     });
   } catch (err) {
     await transaction.rollback();
-    res.status(400).json({
+    res.status(500).json({
       status: "fail",
-      message: err.message,
+      message: "An error occurred while booking the ride.",
     });
   }
 };
@@ -268,3 +307,119 @@ exports.getCurrentRide = async (req, res) => {
     res.status(500).send({ message: "Server error" });
   }
 };
+
+exports.updateFareAfterRideCompletion = async (rideId, actualDistance) => {
+  try {
+    const ride = await Ride.findByPk(rideId);
+    if (!ride) {
+      throw new Error("Ride does not exist.");
+    }
+
+    const newFare = await calculateFare(actualDistance, ride.vehicleTypeKey);
+    ride.fare = newFare;
+    await ride.save();
+
+    return ride;
+  } catch (err) {
+    throw err;
+  }
+};
+
+exports.completeRide = async (req, res) => {
+  try {
+    const { rideId, actualDistance } = req.body;
+
+    const updatedRide = await this.updateFareAfterRideCompletion(
+      rideId,
+      actualDistance
+    );
+
+    const updatedEta = await calculateETA(
+      {
+        lat: updatedRide.pickupLocation.coordinates[1],
+        lng: updatedRide.pickupLocation.coordinates[0],
+      },
+      {
+        lat: updatedRide.dropoffLocation.coordinates[1],
+        lng: updatedRide.dropoffLocation.coordinates[0],
+      }
+    );
+    updatedRide.ETA = `${updatedEta} mins`;
+    await updatedRide.save();
+
+    // Add loyalty points for the user based on fare
+    const pointsToAdd = calculateLoyaltyPoints(updatedRide.fare);
+
+    let loyaltyPoints = await LoyaltyPoints.findOne({
+      where: { userId: updatedRide.userId },
+    });
+
+    if (!loyaltyPoints) {
+      loyaltyPoints = await LoyaltyPoints.create({
+        userId: updatedRide.userId,
+        points: pointsToAdd,
+      });
+    } else {
+      loyaltyPoints.points += pointsToAdd;
+      await loyaltyPoints.save();
+    }
+
+    res.status(200).json({
+      status: "success",
+      data: {
+        ride: {
+          id: updatedRide.id,
+          pickupLocation: updatedRide.pickupLocation.coordinates,
+          dropoffLocation: updatedRide.dropoffLocation.coordinates,
+          vehicleType: updatedRide.vehicleTypeKey,
+          fare: updatedRide.fare,
+          ETA: updatedRide.ETA,
+          status: updatedRide.status,
+        },
+        loyaltyPoints: loyaltyPoints.points, // Including the updated loyalty points in the response
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "fail",
+      message: error.message,
+    });
+  }
+};
+function calculateLoyaltyPoints(fare) {
+  // For example, 1 point for every 10 rupees spent
+  return Math.floor(fare / 10);
+}
+
+async function decideLocation(pickupLocation, dropoffLocation) {
+  const pickupPoint = { type: "Point", coordinates: pickupLocation };
+  const dropoffPoint = { type: "Point", coordinates: dropoffLocation };
+
+  try {
+    const pickupLocationResult = await Location.findOne({
+      where: sequelize.literal(
+        `ST_Contains(geometry, ST_GeomFromGeoJSON('${JSON.stringify(
+          pickupPoint
+        )}'))`
+      ),
+    });
+
+    const dropoffLocationResult = await Location.findOne({
+      where: sequelize.literal(
+        `ST_Contains(geometry, ST_GeomFromGeoJSON('${JSON.stringify(
+          dropoffPoint
+        )}'))`
+      ),
+    });
+
+    if (pickupLocationResult || dropoffLocationResult) {
+      return pickupLocationResult
+        ? pickupLocationResult.name
+        : dropoffLocationResult.name;
+    }
+  } catch (error) {
+    console.error("Error deciding location:", error);
+  }
+
+  return "Other";
+}

@@ -28,11 +28,11 @@ exports.registerRequestOTP = async (req, res) => {
 
     const otp = generateOTP();
 
-    await client.messages.create({
-      body: `Your registration OTP is: ${otp}`,
-      from: process.env.TWILIO_PHONE_NUMBER,
-      to: phoneNumber,
-    });
+    // await client.messages.create({
+    //   body: `Your registration OTP is: ${otp}`,
+    //   from: process.env.TWILIO_PHONE_NUMBER,
+    //   to: phoneNumber,
+    // });
 
     // Store the OTP in the DB temporarily for verification.
     await User.create({
@@ -52,7 +52,7 @@ exports.registerVerifyOTP = async (req, res) => {
   const user = await User.findOne({ where: { phoneNumber } });
 
   if (!user || user.verificationCode !== otp) {
-    new ErrResponse(400, "Invalid OTP.").send(res);
+    return new ErrResponse(400, "Invalid OTP.").send(res); // Notice the 'return' here
   }
 
   // Clear verificationCode after successful registration

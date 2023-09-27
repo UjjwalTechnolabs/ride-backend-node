@@ -104,6 +104,50 @@ const getAvailableDrivers = async (pickupLocation, excludeDriverIds = []) => {
     limit: 5,
   });
 };
+// ...
+// let energyTypeFilter = {};
+// if (userPreference === 'eco-friendly') {
+//   energyTypeFilter.energyType = { [Op.in]: ['electric', 'hybrid'] };
+// }
+
+// return Driver.findAll({
+//   where: {
+//     isAvailable: true,
+//     onlineStatus: {
+//       [Op.not]: "ON_TRIP",
+//     },
+//     [Op.and]: [
+//       Sequelize.where(
+//         Sequelize.fn(
+//           'ST_DWithin',
+//           Sequelize.col('location'),
+//           Sequelize.fn(
+//             'ST_SetSRID',
+//             Sequelize.fn(
+//               'ST_MakePoint',
+//               pickupLocation[0],
+//               pickupLocation[1]
+//             ),
+//             4326
+//           ),
+//           radius
+//         ),
+//         true
+//       ),
+//     ],
+//   },
+//   include: [{
+//     model: Vehicle,
+//     as: 'vehicle',
+//     include: [{
+//       model: VehicleType,
+//       as: 'vehicleType',
+//       where: energyTypeFilter
+//       }
+//     }],
+//   }],
+//   limit: 5,
+// });
 
 exports.handleDriverAcceptance = (rideId) => {
   driverHasAccepted = true;

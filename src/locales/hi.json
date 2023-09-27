@@ -1,0 +1,10 @@
+{
+  "translation": {
+    "transaction": {
+      "userId": "उपयोगकर्ता आईडी",
+      "amount": "रकम",
+      "currencyCode": "मुद्रा कोड",
+      "createdAt": "सृजन की तारीख"
+    }
+  }
+}
