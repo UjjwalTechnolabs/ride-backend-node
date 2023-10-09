@@ -2,7 +2,24 @@ module.exports = (sequelize, DataTypes) => {
   const Driver = sequelize.define("Driver", {
     name: {
       type: DataTypes.STRING,
+      allowNull: true,
+    },
+    email: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      unique: true,
+    },
+    phoneNumber: {
+      type: DataTypes.STRING,
       allowNull: false,
+    },
+    fcmToken: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    isNewDriver: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
     },
     location: {
       type: DataTypes.GEOMETRY("POINT", 4326),
@@ -18,7 +35,7 @@ module.exports = (sequelize, DataTypes) => {
     },
     experience: {
       type: DataTypes.DATE,
-      allowNull: false,
+      allowNull: true,
     },
     profilePhoto: {
       type: DataTypes.STRING,
@@ -40,6 +57,11 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.JSONB, // Can store settings as JSON. E.g., { sms: true, email: false }
       allowNull: true,
     },
+    language_code: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      defaultValue: "en", // English as default language
+    },
     preferredCurrency: {
       type: DataTypes.STRING,
       allowNull: false,
@@ -48,23 +70,26 @@ module.exports = (sequelize, DataTypes) => {
   });
 
   Driver.associate = (models) => {
-    Driver.hasMany(models.Ride, {
+    Driver.hasOne(models.Wallet, {
       foreignKey: "driverId",
-      as: "rides",
-    });
-    Driver.hasMany(models.DriverDocument, {
-      foreignKey: "driverId",
-      as: "documents",
-    });
-    Driver.hasOne(models.Vehicle, {
-      foreignKey: "driverId",
-      as: "vehicle",
+      as: "wallet",
     });
     Driver.hasMany(models.Rating, {
       foreignKey: "driverId",
       as: "ratings",
     });
+    Driver.hasMany(models.Ride, {
+      foreignKey: "driverId",
+      as: "rides",
+    });
+    Driver.hasOne(models.Vehicle, {
+      foreignKey: "driverId",
+      as: "vehicle",
+    });
+    Driver.hasMany(models.DriverActivity, {
+      foreignKey: "driverId",
+      as: "driverActivities",
+    });
   };
-
   return Driver;
 };

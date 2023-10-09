@@ -21,128 +21,128 @@ const {
 exports.bookRide = async (req, res) => {
   const transaction = await sequelize.transaction();
 
-  try {
-    const { userId, pickupLocation, dropoffLocation, vehicleTypeId } = req.body;
+  //try {
+  const { userId, pickupLocation, dropoffLocation, vehicleTypeId } = req.body;
 
-    const vehicleType = await VehicleType.findOne(
-      {
-        where: { id: vehicleTypeId },
-      },
-      { transaction }
-    );
+  const vehicleType = await VehicleType.findOne(
+    {
+      where: { id: vehicleTypeId },
+    },
+    { transaction }
+  );
 
-    if (!vehicleType) {
-      await transaction.rollback();
-      return res.status(400).json({
-        status: "fail",
-        message: "Vehicle type does not exist.",
-      });
-    }
-
-    const user = await User.findByPk(userId, { transaction });
-    if (!user) {
-      await transaction.rollback();
-      return res.status(400).json({
-        status: "fail",
-        message: "User does not exist.",
-      });
-    }
-    const userCurrencyCode = user.currency_code;
-    const distance =
-      getDistance(
-        { latitude: pickupLocation[0], longitude: pickupLocation[1] },
-        { latitude: dropoffLocation[0], longitude: dropoffLocation[1] }
-      ) / 1000;
-
-    const eta = await calculateETA(pickupLocation, dropoffLocation);
-    if (isNaN(eta)) {
-      await transaction.rollback();
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to calculate ETA.",
-      });
-    }
-
-    //const fare = await calculateFare(distance, vehicleTypeId);
-    const serviceType = vehicleType.name; // Assuming that 'name' is the field containing the service type in VehicleType model
-
-    const location = await decideLocation(pickupLocation, dropoffLocation); // Using await to wait for the decideLocation function
-
-    const fare = await calculateFare(
-      distance,
-      vehicleTypeId,
-      userCurrencyCode,
-      serviceType,
-      location
-    );
-
-    const pointsToAdd = Math.floor(fare / 10); // ₹100 की राइड पर 10 पॉइंट्स मिलेंगे, इसलिए fare को 10 से डिवाइड करते हैं।
-    let loyaltyPoints = await LoyaltyPoints.findOne(
-      {
-        where: { userId },
-      },
-      { transaction }
-    );
-
-    if (!loyaltyPoints) {
-      loyaltyPoints = await LoyaltyPoints.create(
-        { userId, points: pointsToAdd },
-        { transaction }
-      );
-    } else {
-      loyaltyPoints.points += pointsToAdd;
-      await loyaltyPoints.save({ transaction });
-    }
-
-    const newRide = await Ride.create(
-      {
-        userId,
-        pickupLocation: { type: "Point", coordinates: pickupLocation },
-        dropoffLocation: { type: "Point", coordinates: dropoffLocation },
-        vehicleTypeKey: vehicleType.id,
-        fare: fare,
-        ETA: `${eta} mins`,
-        requestedAt: new Date(),
-        fuelConsumption: distance * vehicleType.fuelConsumption,
-      },
-      { transaction }
-    );
-
-    const userFcmToken = "..."; // This should ideally be fetched from the user's record or another source.
-
-    // const notificationSent = await rideNotificationService.sendRideConfirmation(
-    //   userFcmToken
-    // );
-
-    // if (!notificationSent) {
-    //   console.warn("Failed to send confirmation notification.");
-    //   // Depending on your requirements, you might want to rollback the transaction here.
-    // }
-
-    await transaction.commit();
-    await assignDriver(newRide.id, pickupLocation);
-    //broadcastRideCreation(newRide.id);
-    res.status(201).json({
-      status: "success",
-      data: {
-        ride: {
-          id: newRide.id,
-          pickupLocation: newRide.pickupLocation.coordinates,
-          dropoffLocation: newRide.dropoffLocation.coordinates,
-          vehicleType: vehicleType.name,
-          fare: newRide.fare,
-          ETA: newRide.ETA,
-          status: newRide.status,
-        },
-      },
-    });
-  } catch (err) {
+  if (!vehicleType) {
     await transaction.rollback();
-    res.status(500).json({
+    return res.status(400).json({
       status: "fail",
-      message: "An error occurred while booking the ride.",
+      message: "Vehicle type does not exist.",
     });
   }
+
+  const user = await User.findByPk(userId, { transaction });
+  if (!user) {
+    await transaction.rollback();
+    return res.status(400).json({
+      status: "fail",
+      message: "User does not exist.",
+    });
+  }
+  const userCurrencyCode = user.currency_code;
+  const distance =
+    getDistance(
+      { latitude: pickupLocation[0], longitude: pickupLocation[1] },
+      { latitude: dropoffLocation[0], longitude: dropoffLocation[1] }
+    ) / 1000;
+
+  const eta = await calculateETA(pickupLocation, dropoffLocation);
+  // if (isNaN(eta)) {
+  //   await transaction.rollback();
+  //   return res.status(500).json({
+  //     status: "error",
+  //     message: "Failed to calculate ETA.",
+  //   });
+  // }
+
+  //const fare = await calculateFare(distance, vehicleTypeId);
+  const serviceType = vehicleType.name; // Assuming that 'name' is the field containing the service type in VehicleType model
+
+  const location = await decideLocation(pickupLocation, dropoffLocation); // Using await to wait for the decideLocation function
+
+  const fare = await calculateFare(
+    distance,
+    vehicleTypeId,
+    userCurrencyCode,
+    serviceType,
+    location
+  );
+
+  const pointsToAdd = Math.floor(fare / 10); // ₹100 की राइड पर 10 पॉइंट्स मिलेंगे, इसलिए fare को 10 से डिवाइड करते हैं।
+  let loyaltyPoints = await LoyaltyPoints.findOne(
+    {
+      where: { userId },
+    },
+    { transaction }
+  );
+
+  if (!loyaltyPoints) {
+    loyaltyPoints = await LoyaltyPoints.create(
+      { userId, points: pointsToAdd },
+      { transaction }
+    );
+  } else {
+    loyaltyPoints.points += pointsToAdd;
+    await loyaltyPoints.save({ transaction });
+  }
+
+  const newRide = await Ride.create(
+    {
+      userId,
+      pickupLocation: { type: "Point", coordinates: pickupLocation },
+      dropoffLocation: { type: "Point", coordinates: dropoffLocation },
+      vehicleTypeKey: vehicleType.id,
+      fare: fare,
+      ETA: `${eta} mins`,
+      requestedAt: new Date(),
+      fuelConsumption: distance * vehicleType.fuelConsumption,
+    },
+    { transaction }
+  );
+
+  const userFcmToken = "..."; // This should ideally be fetched from the user's record or another source.
+
+  // const notificationSent = await rideNotificationService.sendRideConfirmation(
+  //   userFcmToken
+  // );
+
+  // if (!notificationSent) {
+  //   console.warn("Failed to send confirmation notification.");
+  //   // Depending on your requirements, you might want to rollback the transaction here.
+  // }
+
+  await transaction.commit();
+  await assignDriver(newRide.id, pickupLocation);
+  //broadcastRideCreation(newRide.id);
+  res.status(201).json({
+    status: "success",
+    data: {
+      ride: {
+        id: newRide.id,
+        pickupLocation: newRide.pickupLocation.coordinates,
+        dropoffLocation: newRide.dropoffLocation.coordinates,
+        vehicleType: vehicleType.name,
+        fare: newRide.fare,
+        ETA: newRide.ETA,
+        status: newRide.status,
+      },
+    },
+  });
+  // } catch (err) {
+  //   await transaction.rollback();
+  //   res.status(500).json({
+  //     status: "fail",
+  //     message: "An error occurred while booking the ride.",
+  //   });
+  // }
 };
 
 exports.acceptRide = async (req, res) => {

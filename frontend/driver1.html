@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Driver 1</title>
   </head>
-  <body>
+  <body onload="sendDummyLocationOnLoad()">
     <h2>Driver 1</h2>
     <div id="notification"></div>
     <div id="notification"></div>
@@ -168,7 +168,6 @@
         }
       }
       function sendMessage() {
-       
         const message = document.getElementById("messageInput").value;
         if (message) {
           socket.emit("sendMessage", {
@@ -259,6 +258,14 @@
           document.getElementById("acceptButton").style.display = "none";
           document.getElementById("rejectButton").style.display = "none";
         }
+      }
+      function sendDummyLocationOnLoad() {
+        const dummyLocation = getRandomLocation();
+        console.log(`Sending dummy location: ${JSON.stringify(dummyLocation)}`);
+        socket.emit("getDriverLocationWhenOnline", {
+          driverId: driverId,
+          location: dummyLocation,
+        });
       }
     </script>
   </body>

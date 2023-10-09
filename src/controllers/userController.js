@@ -1,5 +1,5 @@
 // controllers/userController.js
-const { User } = require("../../models");
+const { User, Sequelize } = require("../../models");
 
 exports.getUserList = async (req, res) => {
   try {
@@ -25,5 +25,46 @@ exports.getUserDetails = async (req, res) => {
   } catch (error) {
     console.error("Error getting user details:", error);
     res.status(500).send("Error getting user details");
+  }
+};
+
+exports.updateUser = async (req, res) => {
+  const userId = req.params.userId;
+  const updateData = req.body;
+
+  try {
+    const [updated] = await User.update(updateData, {
+      where: { id: userId },
+    });
+
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+        data: null,
+      });
+    }
+
+    const updatedUser = await User.findOne({ where: { id: userId } });
+    return res.status(200).json({
+      success: true,
+      message: "User updated successfully",
+      data: updatedUser,
+    });
+  } catch (error) {
+    if (error instanceof Sequelize.UniqueConstraintError) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "The provided email address is already in use by another user.",
+        data: null,
+      });
+    }
+
+    return res.status(400).json({
+      success: false,
+      message: error.message,
+      data: null,
+    });
   }
 };

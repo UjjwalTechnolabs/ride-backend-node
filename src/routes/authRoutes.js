@@ -5,6 +5,7 @@ const authController = require("../controllers/authController"); // Assuming you
 router.post("/register/request-otp", authController.registerRequestOTP);
 router.post("/register/verify-otp", authController.registerVerifyOTP);
 router.post("/login/request-otp", authController.loginRequestOTP);
-router.post("/login/verify-otp", authController.loginVerifyOTP);
+router.post("/login/verify-otp", authController.loginVerifyOTPForUser);
+router.post("/login/verify-otp-driver", authController.loginVerifyOTPForDriver);
 
 module.exports = router;

@@ -2,8 +2,9 @@
 
 const axios = require("axios");
 const cron = require("node-cron");
-const { Currency } = require("../../models"); // adjust the path accordingly
-
+const { Currency, Driver, sequelize } = require("../../models"); // adjust the path accordingly
+const Redis = require("ioredis");
+const redis = new Redis();
 async function updateCurrencyRates() {
   try {
     const response = await axios.get(
@@ -178,8 +179,82 @@ async function updateCurrencyRates() {
   }
 }
 
+const updateDatabaseWithDriverLocations = async () => {
+  const driverKeys = await redis.keys("driver:*:location");
+  console.log("Driver keys:", driverKeys);
+
+  if (driverKeys.length === 0) return;
+
+  const pipeline = redis.pipeline();
+  driverKeys.forEach((key) => pipeline.get(key));
+  const locations = await pipeline.exec();
+
+  // Debug raw location data from Redis
+  locations.forEach((loc) => console.log("Raw location data from Redis:", loc));
+
+  // Convert Redis responses to an array of updates
+  const updates = locations.map(([_, location], index) => {
+    const driverId = driverKeys[index].split(":")[1];
+
+    // Parse the location data from Redis
+    const parsedLocation = JSON.parse(location);
+
+    // Convert {lat, lng} format to GeoJSON format
+    const geoJSONLocation = {
+      type: "Point",
+      coordinates: [
+        parseFloat(parsedLocation.lng),
+        parseFloat(parsedLocation.lat),
+      ],
+    };
+
+    return { driverId, location: geoJSONLocation };
+  });
+
+  // Batch update PostgreSQL using a transaction for consistency
+  const t = await sequelize.transaction();
+  try {
+    for (const { driverId, location } of updates) {
+      console.log(
+        "Updating location for driver:",
+        driverId,
+        "with data:",
+        location
+      );
+      await Driver.update(
+        { location },
+        { where: { id: driverId } },
+        { transaction: t }
+      );
+    }
+    await t.commit();
+    // Remove processed keys from Redis after a successful update to the database
+    await redis.del(...driverKeys);
+  } catch (error) {
+    console.error("Error updating driver locations in database:", error);
+    await t.rollback();
+  }
+};
+
+// Run the above function every 2 minutes
+
 // Schedule the job
-cron.schedule("0 0 * * *", updateCurrencyRates);
+cron.schedule("0 0 * * **", () => {
+  try {
+    updateCurrencyRates();
+  } catch (error) {
+    console.error("Error running job:", error);
+  }
+});
+
+cron.schedule("*/2 * * * *", () => {
+  try {
+    updateDatabaseWithDriverLocations();
+  } catch (error) {
+    console.error("Error running job:", error);
+  }
+});
+
 // Examples:
 // "0 0 * * *" will run every day at midnight.
 // "*/10 * * * *" will run every 10 minutes.
@@ -194,4 +269,5 @@ cron.schedule("0 0 * * *", updateCurrencyRates);
 // If you want to run in a specific year, for example, every 1st January 2025: "0 0 1 1 * 2025" (This is supported by the node-cron package, it's not standard cron syntax)
 module.exports = {
   updateCurrencyRates,
+  updateDatabaseWithDriverLocations,
 };

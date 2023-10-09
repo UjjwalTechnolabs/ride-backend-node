@@ -1,0 +1,13 @@
+{
+  "folders": [
+    {
+      "path": "."
+    },
+    {
+      "path": "../../../Desktop/ride-app-front"
+    }
+  ],
+  "settings": {
+    "liveServer.settings.multiRootWorkspaceName": "ride-app-front"
+  }
+}

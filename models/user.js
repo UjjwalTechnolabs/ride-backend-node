@@ -82,6 +82,14 @@ module.exports = (sequelize) => {
         type: DataTypes.STRING,
         allowNull: true,
       },
+      fcmToken: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      isNewUser: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: true,
+      },
       currency_code: {
         type: DataTypes.STRING,
         allowNull: true,

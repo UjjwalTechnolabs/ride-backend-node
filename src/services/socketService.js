@@ -4,6 +4,16 @@ const {
   NotifiedDriver,
   LoyaltyPoints,
   EmergencyContacts,
+  DriverEarnings,
+  Wallet,
+  DriverFeedback,
+  UserFeedback,
+  RideHistory,
+  User,
+  VehicleType,
+  sequelize,
+  Location,
+  UserWallet,
 } = require("../../models");
 const { Op, Sequelize } = require("sequelize");
 const { handleDriverAcceptance, assignDriver } = require("./driverService");
@@ -11,9 +21,15 @@ const {
   updateDriverStatusForRide,
   logNotifiedDriver,
 } = require("./rideService");
-const { calculateFare, calculateETA } = require("../utils/fareUtils");
+const {
+  calculateFare,
+  calculateETA,
+  calculateETAFinal,
+} = require("../utils/fareUtils");
 const { sendSMS } = require("../controllers/alertController");
 const app = require("../app");
+const Redis = require("ioredis");
+const redis = new Redis();
 let io;
 let driversAttempted = {};
 let driverSocketMap = {}; // Outside the connection listener
@@ -72,29 +88,13 @@ exports.initializeSocketIO = (socketIOInstance) => {
       }
     });
 
-    // socket.on("updateLocation", async (data) => {
-    //   console.log(data);
-    //   // Fetch the emergency contacts for this user from the database
-    //   const userId = 1;
-    //   const contacts = await EmergencyContacts.findAll({ where: { userId } });
+    socket.on("getDriverLocationWhenOnline", (data) => {
+      const { driverId, location } = data;
 
-    //   // Send an alert/notification to all emergency contacts
-    //   contacts.forEach((contact) => {
-    //     // Send SMS
-    //     const message = `User ${contact.contactName} is in danger! Location: https://rider-backend.ngrok.io/alert/1`;
-    //     // sendSMS(contact.contactNumber, message);
+      // Set driver location in Redis with a prefix 'driver:'
+      redis.set(`driver:${driverId}:location`, JSON.stringify(location));
+    });
 
-    //     // Send WhatsApp Message//contactWhatsAppNumber
-    //     //sendWhatsAppMessage(contact.contactNumber, message);
-    //   });
-    //   if (data.userId) {
-    //     locations[data.userId] = {
-    //       latitude: data.latitude,
-    //       longitude: data.longitude,
-    //     };
-    //     io.emit("showLocation" + data.userId, locations[data.userId]);
-    //   }
-    // });
     socket.on("joinChatRoom", (rideId) => {
       socket.join(`chat:${rideId}`);
       console.log(`Joined chat room for ride: ${rideId}`);
@@ -133,7 +133,24 @@ exports.initializeSocketIO = (socketIOInstance) => {
       driverSocketMap[socket.id] = driverId;
       console.log(`Driver ${driverId} identified.`);
     });
+    socket.on("addFunds", async (data) => {
+      const userId = data.userId;
+      const amount = data.amount;
 
+      const userWallet = await Wallet.findOne({ where: { userId: userId } });
+      userWallet.balance += amount;
+      await userWallet.save();
+    });
+    socket.on("userFeedback", async (data) => {
+      const userId = data.userId;
+      const driverId = data.driverId;
+      const feedback = data.feedback;
+      await UserFeedback.create({
+        driverId: driverId,
+        userId: userId,
+        feedback: feedback,
+      });
+    });
     socket.on("joinRideRoom", (rideId) => {
       socket.join(rideId);
       console.log(`Joined ride room: ${rideId}`);
@@ -159,7 +176,12 @@ exports.initializeSocketIO = (socketIOInstance) => {
       console.log(
         `Emitting driver-enroute for rideId: ${rideId} and driverId: ${socket.id}`
       );
-      console.log(actualDriverId);
+      io.emit("debug-driver-enroute", {
+        rideId,
+        driverId: actualDriverId,
+        debug: "Just for testing",
+      });
+      console.log("actualDriverId Deepak nagar");
       io.to(rideId).emit("driver-enroute", {
         rideId,
         driverId: actualDriverId,
@@ -190,6 +212,16 @@ exports.initializeSocketIO = (socketIOInstance) => {
       console.log(data);
       io.to(rideId).emit("update-driver-location", location);
     });
+    socket.on("driverFeedback", async (data) => {
+      const userId = data.userId;
+      const driverId = data.driverId;
+      const feedback = data.feedback;
+      await DriverFeedback.create({
+        driverId: driverId,
+        userId: userId,
+        feedback: feedback,
+      });
+    });
 
     socket.on("rideCompleted", async (data) => {
       console.log(data);
@@ -199,11 +231,88 @@ exports.initializeSocketIO = (socketIOInstance) => {
         //await Ride.update({ status: "COMPLETED" }, { where: { id: rideId } });
         // वास्तविक दूरी और वाहन के प्रकार से किराया की गणना
         const ride = await Ride.findByPk(data.rideId);
+
+        const vehicleType = await VehicleType.findOne({
+          where: { id: ride.vehicleTypeKey },
+        });
+
+        if (!vehicleType) {
+          await transaction.rollback();
+          return res.status(400).json({
+            status: "fail",
+            message: "Vehicle type does not exist.",
+          });
+        }
+        const serviceType = vehicleType.name;
+        const user = await User.findByPk(ride.userId);
+        if (!user) {
+          return res.status(400).json({
+            status: "fail",
+            message: "User does not exist.",
+          });
+        }
+        const location = await decideLocation(
+          ride.pickupLocation,
+          ride.dropoffLocation
+        ); // Using await to wait for the decideLocation function
+        console.log(
+          "datas",
+          data.actualDistance,
+          ride.vehicleTypeKey,
+          user.userCurrencyCode,
+          serviceType,
+          location
+        );
         const actualFare = await calculateFare(
           data.actualDistance,
-          ride.vehicleTypeKey
+          ride.vehicleTypeKey,
+
+          user.currency_code,
+          serviceType,
+          // Assuming that 'name' is the field containing the service type in VehicleType model
+
+          location
         );
 
+        const earnings = calculateDriverEarnings(actualFare);
+        await DriverEarnings.create({
+          driverId: actualDriverId,
+          rideId: data.rideId,
+          earnings: earnings,
+        });
+        const driver = await Driver.findByPk(actualDriverId);
+        const driverWallet = await Wallet.findOne({
+          where: { driverId: actualDriverId },
+        });
+        if (driverWallet) {
+          driverWallet.balance += earnings; // Increment the wallet balance by the earnings
+          await driverWallet.save();
+        } else {
+          // If the driver doesn't have a wallet, create a new one with the earnings as initial balance
+          await Wallet.create({
+            driverId: actualDriverId,
+            balance: earnings,
+            currencyCode: driver.preferredCurrency,
+          });
+        }
+        // this should be implement
+
+        const userWallet = await UserWallet.findOne({
+          where: { userId: ride.userId },
+        });
+
+        if (userWallet) {
+          userWallet.balance -= actualFare; // Decrement the wallet balance by the fare amount
+          await userWallet.save();
+        } else {
+          // If the user doesn't have a wallet, create a new one with a negative balance equal to the fare.
+          // However, this scenario might be problematic in real-world applications - you typically don't want users to have negative balances.
+          await UserWallet.create({
+            userId: ride.userId,
+            balance: -actualFare,
+            currencyCode: user.currency_code,
+          });
+        }
         // ETA की गणना
         const receivedDropoff = {
           type: "Point",
@@ -211,7 +320,7 @@ exports.initializeSocketIO = (socketIOInstance) => {
         };
         ride.dropoffLocation = receivedDropoff;
 
-        const updatedEta = await calculateETA(
+        const updatedEta = await calculateETAFinal(
           ride.pickupLocation.coordinates,
           ride.dropoffLocation.coordinates
         );
@@ -245,6 +354,20 @@ exports.initializeSocketIO = (socketIOInstance) => {
           },
           { where: { id: data.rideId } }
         );
+        // await RideHistory.create({
+        //   userId: ride.userId,
+        //   driverId: actualDriverId,
+        //   rideId: data.rideId,
+        //   fare: actualFare,
+        //   distance: data.actualDistance,
+        //   pickupLocation: data.pickupLocation, // Assuming data contains pickupLocation
+        //   dropoffLocation: data.dropoffLocation, // Assuming data contains dropoffLocation
+        //   startTime: data.startTime, // Assuming data contains startTime
+        //   endTime: data.endTime, // Assuming data contains endTime
+        //   vehicleDetails: data.vehicleDetails, // Assuming data contains vehicleDetails
+        //   feedback: data.feedback, // Assuming data contains feedback
+        //   rating: data.rating, // Assuming data contains rating
+        // });
 
         // Update the NotifiedDriver table status for this driver to 'accepted' for this ride
         // This assumes your ride requests to drivers are stored with a status like 'notified' or 'accepted'
@@ -424,6 +547,44 @@ exports.removeDriverFromAvailable = (driverId) => {
     console.log(`Driver ${driverId} is no longer available.`);
   }
 };
+async function decideLocation(pickupLocation, dropoffLocation) {
+  console.log("decode", pickupLocation);
+  console.log("decode", dropoffLocation);
+
+  const pickupCoordinates = pickupLocation.coordinates;
+  const dropoffCoordinates = dropoffLocation.coordinates;
+
+  const pickupPoint = { type: "Point", coordinates: pickupCoordinates };
+  const dropoffPoint = { type: "Point", coordinates: dropoffCoordinates };
+
+  try {
+    const pickupLocationResult = await Location.findOne({
+      where: sequelize.literal(
+        `ST_Contains(geometry, ST_GeomFromGeoJSON('${JSON.stringify(
+          pickupPoint
+        )}'))`
+      ),
+    });
+
+    const dropoffLocationResult = await Location.findOne({
+      where: sequelize.literal(
+        `ST_Contains(geometry, ST_GeomFromGeoJSON('${JSON.stringify(
+          dropoffPoint
+        )}'))`
+      ),
+    });
+
+    if (pickupLocationResult || dropoffLocationResult) {
+      return pickupLocationResult
+        ? pickupLocationResult.name
+        : dropoffLocationResult.name;
+    }
+  } catch (error) {
+    console.error("Error deciding location:", error);
+  }
+
+  return "Other";
+}
 
 const getAvailableDrivers = async (pickupLocation, excludeDriverIds = []) => {
   return Driver.findAll({
@@ -459,6 +620,11 @@ const getAvailableDrivers = async (pickupLocation, excludeDriverIds = []) => {
 function calculateLoyaltyPoints(fare) {
   // For example, 1 point for every 10 rupees spent
   return Math.floor(fare / 10);
+}
+function calculateDriverEarnings(actualFare) {
+  // Driver gets 80% of the fare
+  const driverPercentage = 0.8;
+  return actualFare * driverPercentage;
 }
 app.get("/last-location/:userId", (req, res) => {
   res.json(locations[req.params.userId] || {});

@@ -3,7 +3,7 @@
 const express = require("express");
 const router = express.Router();
 const multer = require("multer");
-const DriverController = require("../controllers/driverController");
+const driverController = require("../controllers/driverController");
 const reviewController = require("../controllers/reviewController"); // Adjust the path as necessary
 
 const path = require("path");
@@ -21,20 +21,21 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-router.post("/", DriverController.createDriver);
-router.get("/", DriverController.getDriverList);
-router.get("/:driverId", DriverController.getDriverDetails);
-router.put("/:id", DriverController.updateDriver);
-router.delete("/:id", DriverController.deleteDriver);
+router.post("/", driverController.createDriver);
+router.get("/", driverController.getDriverList);
+router.get("/:driverId", driverController.getDriverDetails);
+router.put("/:id", driverController.updateDriver);
+router.delete("/:id", driverController.deleteDriver);
 router.post(
   "/:id/documents",
   upload.single("document"),
-  DriverController.uploadDriverDocument
+  driverController.uploadDriverDocument
 ); // Here we are using multer middleware
-router.get("/:id/ratings", DriverController.getDriverRatings);
-router.get("/:id/vehicle", DriverController.getDriverVehicle);
+router.get("/:id/ratings", driverController.getDriverRatings);
+router.get("/:id/vehicle", driverController.getDriverVehicle);
 
 router.post("/reviews", reviewController.addReview);
-router.get("/:driverId/earnings", DriverController.getDriverEarnings);
+router.get("/:driverId/earnings", driverController.getDriverEarnings);
+router.get("/dashboard/:driverId", driverController.getDriverDashboardData);
 
 module.exports = router;

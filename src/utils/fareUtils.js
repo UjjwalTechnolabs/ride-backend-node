@@ -1,9 +1,7 @@
 const { VehicleType, Pricing, Currency } = require("../../models");
-const { Client } = require("@googlemaps/google-maps-services-js");
-const client = new Client({});
-const { sequelize } = require("../../models");
-const axios = require("axios");
 
+const { sequelize } = require("../../models");
+const https = require("https");
 // exports.calculateFare = async function (distance, vehicleTypeId) {
 //   const vehicleType = await VehicleType.findByPk(vehicleTypeId);
 
@@ -87,39 +85,124 @@ exports.calculateFare = async function (
 };
 
 exports.calculateETA = async function (pickupLocation, dropoffLocation) {
-  try {
-    const response = await client.distancematrix({
-      params: {
-        origins: [`${pickupLocation[1]},${pickupLocation[0]}`],
-        destinations: [`${dropoffLocation[1]},${dropoffLocation[0]}`],
-        mode: "driving",
-        traffic_model: "best_guess",
-        departure_time: "now",
-        key: "AIzaSyBLmcwFlQ68ZbfyQXTQql8Im8AO-aofTy4",
-      },
-    });
+  console.log("pickupLocation:" + pickupLocation);
+  console.log("dropoffLocation:" + dropoffLocation);
+  return new Promise((resolve, reject) => {
+    const origin = `${pickupLocation[1]},${pickupLocation[0]}`;
+    const destination = `${dropoffLocation[1]},${dropoffLocation[0]}`;
+    const apiKey = "AIzaSyBLmcwFlQ68ZbfyQXTQql8Im8AO-aofTy4";
 
-    if (
-      response.data &&
-      response.data.rows[0] &&
-      response.data.rows[0].elements[0]
-    ) {
-      const etaSeconds =
-        response.data.rows[0].elements[0].duration_in_traffic.value;
-      const etaMins = etaSeconds / 60;
-      return Math.round(etaMins);
-    } else {
-      console.error("Unexpected Google Maps API response:", response.data);
-      return NaN;
-    }
-  } catch (error) {
-    console.error("Error fetching ETA from Google Maps:", error);
-    if (error.response) {
-      console.error("Error response data:", error.response.data);
-    }
-    return NaN;
-  }
+    const url = `https://maps.googleapis.com/maps/api/distancematrix/json?departure_time=now&destinations=${destination}&key=${apiKey}&mode=driving&origins=${origin}&traffic_model=best_guess`;
+    console.log(url);
+    https
+      .get(url, (res) => {
+        let data = "";
+
+        res.on("data", (chunk) => {
+          data += chunk;
+        });
+
+        res.on("end", () => {
+          const responseData = JSON.parse(data);
+          if (
+            responseData &&
+            responseData.rows[0] &&
+            responseData.rows[0].elements[0]
+          ) {
+            const etaSeconds =
+              responseData.rows[0].elements[0].duration_in_traffic.value;
+            const etaMins = etaSeconds / 60;
+            resolve(Math.round(etaMins));
+          } else {
+            console.error("Unexpected Google Maps API response:", responseData);
+            resolve(NaN);
+          }
+        });
+      })
+      .on("error", (err) => {
+        console.error("Error fetching ETA from Google Maps:", err);
+        resolve(NaN);
+      });
+  });
 };
+exports.calculateETAFinal = async function (pickupLocation, dropoffLocation) {
+  console.log("pickupLocation:" + pickupLocation);
+  console.log("dropoffLocation:" + dropoffLocation);
+  return new Promise((resolve, reject) => {
+    const origin = `${pickupLocation[1]},${pickupLocation[0]}`;
+    const destination = `${dropoffLocation[0]},${dropoffLocation[1]}`;
+    const apiKey = "AIzaSyBLmcwFlQ68ZbfyQXTQql8Im8AO-aofTy4";
+
+    const url = `https://maps.googleapis.com/maps/api/distancematrix/json?departure_time=now&destinations=${destination}&key=${apiKey}&mode=driving&origins=${origin}&traffic_model=best_guess`;
+    console.log(url);
+    https
+      .get(url, (res) => {
+        let data = "";
+
+        res.on("data", (chunk) => {
+          data += chunk;
+        });
+
+        res.on("end", () => {
+          const responseData = JSON.parse(data);
+          if (
+            responseData &&
+            responseData.rows[0] &&
+            responseData.rows[0].elements[0]
+          ) {
+            const etaSeconds =
+              responseData.rows[0].elements[0].duration_in_traffic.value;
+            const etaMins = etaSeconds / 60;
+            resolve(Math.round(etaMins));
+          } else {
+            console.error("Unexpected Google Maps API response:", responseData);
+            resolve(NaN);
+          }
+        });
+      })
+      .on("error", (err) => {
+        console.error("Error fetching ETA from Google Maps:", err);
+        resolve(NaN);
+      });
+  });
+};
+
+// exports.calculateETA = async function (pickupLocation, dropoffLocation) {
+//   console.log(pickupLocation);
+//   console.log(dropoffLocation);
+//   try {
+//     const response = await client.distancematrix({
+//       params: {
+//         origins: [`${pickupLocation[1]},${pickupLocation[0]}`],
+//         destinations: [`${dropoffLocation[1]},${dropoffLocation[0]}`],
+//         mode: "driving",
+//         traffic_model: "best_guess",
+//         departure_time: "now",
+//         key: "AIzaSyBLmcwFlQ68ZbfyQXTQql8Im8AO-aofTy4",
+//       },
+//     });
+//     console.log(response.data);
+//     if (
+//       response.data &&
+//       response.data.rows[0] &&
+//       response.data.rows[0].elements[0]
+//     ) {
+//       const etaSeconds =
+//         response.data.rows[0].elements[0].duration_in_traffic.value;
+//       const etaMins = etaSeconds / 60;
+//       return Math.round(etaMins);
+//     } else {
+//       console.error("Unexpected Google Maps API response:", response.data);
+//       return NaN;
+//     }
+//   } catch (error) {
+//     console.error("Error fetching ETA from Google Maps:", error);
+//     if (error.response) {
+//       console.error("Error response data:", error.response.data);
+//     }
+//     return NaN;
+//   }
+// };
 /**
  * Convert currency from one to another.
  * @param {number} amount - The amount of money to convert.

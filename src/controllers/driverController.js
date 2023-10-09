@@ -1,11 +1,16 @@
 const {
   Driver,
   DriverDocument,
-  Vehicle,
-  Rating,
-  Review,
-  Currency,
   Ride,
+  Transaction,
+  Rating,
+  Vehicle,
+  Review,
+  VehicleType,
+  Wallet,
+  Currency,
+  DriverActivity,
+  sequelize,
 } = require("../../models");
 const { Op } = require("sequelize");
 exports.createDriver = async (req, res) => {
@@ -78,19 +83,49 @@ exports.deleteDriver = async (req, res) => {
     res.status(500).send({ message: "Error deleting driver!" });
   }
 };
+// exports.uploadDriverDocument = async (req, res) => {
+//   try {
+//     const driverId = req.params.id;
+//     const documentDetails = {
+//       driverId,
+//       documentType: req.body.documentType,
+//       documentLink: req.file.path, // assuming `req.file.path` contains the path where multer has stored the file.
+//       expiryDate: req.body.expiryDate,
+//       verificationStatus: req.body.verificationStatus || "PENDING",
+//     };
+
+//     const document = await DriverDocument.create(documentDetails);
+//     res.status(201).send(document);
+//   } catch (error) {
+//     res.status(500).send({ message: "Error uploading document!" });
+//   }
+// };
 exports.uploadDriverDocument = async (req, res) => {
   try {
     const driverId = req.params.id;
-    const documentDetails = {
-      driverId,
-      documentType: req.body.documentType,
-      documentLink: req.file.path, // assuming `req.file.path` contains the path where multer has stored the file.
-      expiryDate: req.body.expiryDate,
-      verificationStatus: req.body.verificationStatus || "PENDING",
-    };
+    let response = null; // defining a response variable to handle different responses
 
-    const document = await DriverDocument.create(documentDetails);
-    res.status(201).send(document);
+    if (req.body.documentType === "PROFILE") {
+      const driver = await Driver.findOne({ where: { id: driverId } });
+      if (driver) {
+        driver.profilePhoto = req.file.path;
+        await driver.save();
+        response = { message: "Profile photo updated successfully!" }; // set response when profile photo updated
+      }
+      // You can handle the scenario when user is not found if needed
+    } else {
+      const documentDetails = {
+        driverId,
+        documentType: req.body.documentType,
+        documentLink: req.file.path,
+        expiryDate: req.body.expiryDate,
+        verificationStatus: req.body.verificationStatus || "PENDING",
+      };
+
+      response = await DriverDocument.create(documentDetails); // set response as the created document
+    }
+
+    res.status(201).send(response); // send the appropriate response
   } catch (error) {
     res.status(500).send({ message: "Error uploading document!" });
   }
@@ -235,4 +270,133 @@ exports.getDriverEarnings = async (req, res) => {
       message: "Server Error",
     });
   }
+};
+
+exports.getDriverDashboardData = async (req, res) => {
+  // try {
+  const driverId = req.params.driverId;
+
+  // 1) Driver Details
+  const driverDetails = await Driver.findByPk(driverId, {
+    include: ["wallet", "vehicle", "driverActivities"],
+  });
+
+  if (!driverDetails) {
+    return res.status(404).json({
+      success: false,
+      message: "Driver not found",
+    });
+  }
+  // 2) Driver Ratings
+  const ratings = await Rating.findAll({ where: { driverId } });
+
+  // Calculate average rating
+  const totalRating = ratings.reduce(
+    (acc, rating) => acc + rating.ratingValue,
+    0
+  );
+  const averageRating = ratings.length ? totalRating / ratings.length : 0;
+
+  // 3) Total trips (count)
+  const totalTrips = await Ride.count({
+    where: { driverId, status: "COMPLETED" },
+  });
+
+  // 4) Total Earnings (count)
+  const totalEarnings = await Transaction.sum("earnings", {
+    where: { userId: driverId },
+  });
+
+  // 5) Wallet balance
+  const walletBalance = driverDetails.wallet ? driverDetails.wallet.balance : 0;
+
+  // 6) Vehicle details
+  const vehicleDetails = driverDetails.vehicle || {};
+
+  // 7) Earnings
+  const cashEarnings = await Transaction.sum("earnings", {
+    where: { userId: driverId, currencyCode: "cash" },
+  });
+  const onlineEarnings = totalEarnings - cashEarnings;
+
+  // ... Code for month-wise bar graph can be more involved (we'll tackle this in a bit)
+  const earningsByMonth = await Transaction.findAll({
+    attributes: [
+      [
+        sequelize.fn("date_trunc", "month", sequelize.col("createdAt")),
+        "month",
+      ],
+      [sequelize.fn("sum", sequelize.col("earnings")), "totalEarnings"],
+    ],
+    where: { userId: driverId },
+    group: ["month"],
+    order: [["month", "ASC"]],
+  });
+  const acceptancesByMonth = await DriverActivity.findAll({
+    attributes: [
+      [
+        sequelize.fn("date_trunc", "month", sequelize.col("timestamp")),
+        "month",
+      ],
+      [sequelize.fn("count", sequelize.col("type")), "acceptances"],
+    ],
+    where: { driverId, type: "ACCEPTED" },
+    group: ["month"],
+    order: [["month", "ASC"]],
+  });
+
+  const cancellationsByMonth = await DriverActivity.findAll({
+    attributes: [
+      [
+        sequelize.fn("date_trunc", "month", sequelize.col("timestamp")),
+        "month",
+      ],
+      [sequelize.fn("count", sequelize.col("type")), "cancellations"],
+    ],
+    where: { driverId, type: "CANCELLED" },
+    group: ["month"],
+    order: [["month", "ASC"]],
+  });
+
+  // 8) Trip Statistics
+  const kms = await Ride.sum("fuelConsumption", { where: { driverId } });
+  const acceptanceRate =
+    ((await DriverActivity.count({ where: { driverId, type: "ACCEPTED" } })) /
+      totalTrips) *
+    100;
+  const cancellationRate =
+    ((await DriverActivity.count({
+      where: { driverId, type: "CANCELLED" },
+    })) /
+      totalTrips) *
+    100;
+  // ... Hours online, etc (may require some involved calculations based on your application logic)
+
+  // 9) Ongoing trips
+  const ongoingTrips = await Ride.findAll({
+    where: { driverId, status: "PENDING" },
+  });
+
+  // Return all data
+  res.status(200).json({
+    driverDetails,
+    averageRating,
+    totalTrips,
+    totalEarnings,
+    walletBalance,
+    vehicleDetails,
+    cashEarnings,
+    onlineEarnings,
+    kms,
+    acceptanceRate,
+    cancellationRate,
+    ongoingTrips,
+    earningsByMonth,
+    acceptancesByMonth,
+    cancellationsByMonth,
+    // ... other fields, and graphs data
+  });
+  // } catch (error) {
+  //   res.status(500).json({ error: error.message });
+  // }
 };

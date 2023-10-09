@@ -37,7 +37,7 @@
       socket.on("connect", () => {
         console.log("Connected to the socket server");
         // You can add any user-specific initialization here, like joining a room
-        const userId = 200; // For demonstration, replace with actual user ID logic
+        const userId = 222; // For demonstration, replace with actual user ID logic
 
         socket.emit("joinRideRoom", userId);
         socket.on("test-event", (data) => {
@@ -60,14 +60,6 @@
         notificationElement.innerText = `Driver's current location: Latitude: ${location.lat}, Longitude: ${location.lng}`;
       });
 
-      socket.on("receiveMessage", (data) => {
-        console.log(data);
-        const { message, senderType, timestamp } = data;
-        const messageList = document.getElementById("messageList");
-        const newMessage = document.createElement("li");
-        newMessage.textContent = `${timestamp} - ${senderType}: ${message}`;
-        messageList.appendChild(newMessage);
-      });
       socket.on("driver-arrived", (data) => {
         document.getElementById(
           "user-notification"
@@ -79,16 +71,26 @@
           "user-notification"
         ).innerText = `Your ride with ${data.driverName} has started. Enjoy the journey!`;
       });
+
+      socket.on("rideCompleted", (data) => {
+        document.getElementById(
+          "user-notification"
+        ).innerText = `Your ride with ${data.driverName} has been completed. Thank you for riding with us!`;
+      });
+
+      socket.on("receiveMessage", (data) => {
+        console.log(data);
+        const { message, senderType, timestamp } = data;
+        const messageList = document.getElementById("messageList");
+        const newMessage = document.createElement("li");
+        newMessage.textContent = `${timestamp} - ${senderType}: ${message}`;
+        messageList.appendChild(newMessage);
+      });
       socket.on("disconnect", (reason) => {
         console.log(`Disconnected from the server due to: ${reason}`);
         // You can execute any logic here. For instance:
         document.getElementById("user-notification").innerText =
           "Disconnected from the server. Please refresh or try again later.";
-      });
-      socket.on("rideCompleted", (data) => {
-        document.getElementById(
-          "user-notification"
-        ).innerText = `Your ride with ${data.driverName} has been completed. Thank you for riding with us!`;
       });
       let currentRide;
       async function fetchCurrentRide() {
