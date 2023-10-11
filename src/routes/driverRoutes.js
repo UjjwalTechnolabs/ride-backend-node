@@ -24,7 +24,7 @@ const upload = multer({ storage });
 router.post("/", driverController.createDriver);
 router.get("/", driverController.getDriverList);
 router.get("/:driverId", driverController.getDriverDetails);
-router.put("/:id", driverController.updateDriver);
+
 router.delete("/:id", driverController.deleteDriver);
 router.post(
   "/:id/documents",
@@ -37,5 +37,10 @@ router.get("/:id/vehicle", driverController.getDriverVehicle);
 router.post("/reviews", reviewController.addReview);
 router.get("/:driverId/earnings", driverController.getDriverEarnings);
 router.get("/dashboard/:driverId", driverController.getDriverDashboardData);
+router.get(
+  "/:driverId/with-documents",
+  driverController.getDriverWithDocuments
+);
+router.put("/:driverId", driverController.updateDriverOrVehicle);
 
 module.exports = router;

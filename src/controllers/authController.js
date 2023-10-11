@@ -4,7 +4,7 @@ const { User, OTPTable, Driver } = require("../../models");
 const twilio = require("twilio");
 const SuccessResponse = require("../../utils/successResponse");
 const ErrResponse = require("../../utils/errorResponse");
-
+const APP_HASH = "ahELDm9mnOx";
 const client = twilio(
   process.env.TWILIO_ACCOUNT_SID,
   process.env.TWILIO_AUTH_TOKEN
@@ -19,23 +19,13 @@ exports.registerRequestOTP = async (req, res) => {
     const { phoneNumber, countryCode } = req.body;
     const fullNumber = countryCode + phoneNumber;
 
-    // const existingUser = await User.findOne({
-    //   where: { phoneNumber: fullNumber },
-    // });
-    // if (existingUser) {
-    //   new ErrResponse(400, "User with this phone number already exists.").send(
-    //     res
-    //   );
-    //   return;
-    // }
-
     const otp = generateOTP();
 
-    // await client.messages.create({
-    //   body: `RolaRide OTP: ${otp}. Remember, it's important not to share your OTP to prevent potential security breaches.`,
-    //   from: process.env.TWILIO_PHONE_NUMBER,
-    //   to: fullNumber,
-    // });
+    await client.messages.create({
+      body: `<#> RolaRide OTP: ${otp} for account safety ${APP_HASH}. Remember, it's important not to share your OTP to prevent potential security breaches.`,
+      from: process.env.TWILIO_PHONE_NUMBER,
+      to: fullNumber,
+    });
 
     // Store the OTP in the OTPTable temporarily for verification.
     await OTPTable.upsert({ phoneNumber: fullNumber, verificationCode: otp });
@@ -72,11 +62,11 @@ exports.loginRequestOTP = async (req, res) => {
 
   const otp = generateOTP();
 
-  // await client.messages.create({
-  //   body: `RolaRide with the name of your ride app and ${otp} with the generated OTP. Remember, it's important to remind users not to share their OTP to prevent potential security breaches.`,
-  //   from: process.env.TWILIO_PHONE_NUMBER,
-  //   to: phoneNumber,
-  // });
+  await client.messages.create({
+    body: `<#> RolaRide OTP: ${otp} account safety ${APP_HASH}. Remember, it's important not to share your OTP to prevent potential security breaches.`,
+    from: process.env.TWILIO_PHONE_NUMBER,
+    to: fullNumber,
+  });
 
   // Store the OTP in the DB temporarily for verification.
   user.verificationCode = otp;

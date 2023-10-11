@@ -107,9 +107,8 @@ exports.bookRide = async (req, res) => {
     },
     { transaction }
   );
-
-  const userFcmToken = "..."; // This should ideally be fetched from the user's record or another source.
-
+  // This should ideally be fetched from the user's record or another source.
+  // const userFcmToken = user.fcmToken;
   // const notificationSent = await rideNotificationService.sendRideConfirmation(
   //   userFcmToken
   // );
@@ -120,7 +119,7 @@ exports.bookRide = async (req, res) => {
   // }
 
   await transaction.commit();
-  await assignDriver(newRide.id, pickupLocation);
+  await assignDriver(newRide.id, pickupLocation, dropoffLocation);
   //broadcastRideCreation(newRide.id);
   res.status(201).json({
     status: "success",

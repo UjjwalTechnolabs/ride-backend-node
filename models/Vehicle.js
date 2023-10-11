@@ -20,13 +20,23 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING,
       allowNull: false,
     },
-    type: {
-      type: DataTypes.STRING,
+
+    energyTypeId: {
+      type: DataTypes.INTEGER,
       allowNull: false,
+      references: {
+        model: "EnergyTypes", // name of the table in the database
+        key: "id",
+      },
     },
-    energyType: {
-      type: DataTypes.STRING, // electric, hybrid, petrol, etc.
+    vehicleTypeId: {
+      // New column
+      type: DataTypes.INTEGER,
       allowNull: false,
+      references: {
+        model: "VehicleTypes",
+        key: "id",
+      },
     },
   });
 
@@ -38,6 +48,10 @@ module.exports = (sequelize, DataTypes) => {
     Vehicle.belongsTo(models.VehicleType, {
       foreignKey: "vehicleTypeId",
       as: "vehicleType",
+    });
+    Vehicle.belongsTo(models.EnergyType, {
+      foreignKey: "energyTypeId",
+      as: "energySourceType", // changed alias name
     });
   };
 

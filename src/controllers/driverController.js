@@ -11,8 +11,11 @@ const {
   Currency,
   DriverActivity,
   sequelize,
+  EnergyType,
 } = require("../../models");
 const { Op } = require("sequelize");
+const fs = require("fs"); // Required to handle file system operations
+
 exports.createDriver = async (req, res) => {
   try {
     const driver = await Driver.create(req.body);
@@ -58,18 +61,18 @@ exports.getDriverDetails = async (req, res) => {
   }
 };
 
-exports.updateDriver = async (req, res) => {
-  try {
-    const driver = await Driver.findByPk(req.params.id);
-    if (!driver) {
-      return res.status(404).send({ message: "Driver not found!" });
-    }
-    await driver.update(req.body);
-    res.send(driver);
-  } catch (error) {
-    res.status(500).send({ message: "Error updating driver!" });
-  }
-};
+// exports.updateDriver = async (req, res) => {
+//   try {
+//     const driver = await Driver.findByPk(req.params.id);
+//     if (!driver) {
+//       return res.status(404).send({ message: "Driver not found!" });
+//     }
+//     await driver.update(req.body);
+//     res.send(driver);
+//   } catch (error) {
+//     res.status(500).send({ message: "Error updating driver!" });
+//   }
+// };
 
 exports.deleteDriver = async (req, res) => {
   try {
@@ -100,20 +103,34 @@ exports.deleteDriver = async (req, res) => {
 //     res.status(500).send({ message: "Error uploading document!" });
 //   }
 // };
+
 exports.uploadDriverDocument = async (req, res) => {
   try {
     const driverId = req.params.id;
-    let response = null; // defining a response variable to handle different responses
+    let response = null;
+
+    const validDocumentTypes = ["LICENSE", "INSURANCE", "VEHICLE_REGISTRATION"];
 
     if (req.body.documentType === "PROFILE") {
       const driver = await Driver.findOne({ where: { id: driverId } });
       if (driver) {
+        if (driver.profilePhoto && fs.existsSync(driver.profilePhoto)) {
+          fs.unlinkSync(driver.profilePhoto); // Remove old profile photo
+        }
+
         driver.profilePhoto = req.file.path;
         await driver.save();
-        response = { message: "Profile photo updated successfully!" }; // set response when profile photo updated
+        response = { documentType: "PROFILE" };
       }
-      // You can handle the scenario when user is not found if needed
-    } else {
+    } else if (validDocumentTypes.includes(req.body.documentType)) {
+      // Check if a document of this type already exists
+      const existingDocument = await DriverDocument.findOne({
+        where: {
+          driverId: driverId,
+          documentType: req.body.documentType,
+        },
+      });
+
       const documentDetails = {
         driverId,
         documentType: req.body.documentType,
@@ -122,14 +139,59 @@ exports.uploadDriverDocument = async (req, res) => {
         verificationStatus: req.body.verificationStatus || "PENDING",
       };
 
-      response = await DriverDocument.create(documentDetails); // set response as the created document
+      if (existingDocument) {
+        if (
+          existingDocument.documentLink &&
+          fs.existsSync(existingDocument.documentLink)
+        ) {
+          fs.unlinkSync(existingDocument.documentLink); // Remove old document
+        }
+
+        await existingDocument.update(documentDetails);
+        response = { documentType: existingDocument.documentType };
+      } else {
+        response = await DriverDocument.create(documentDetails);
+      }
+    } else {
+      response = { message: "Invalid document type!" };
     }
 
-    res.status(201).send(response); // send the appropriate response
+    res.status(201).send(response);
   } catch (error) {
     res.status(500).send({ message: "Error uploading document!" });
   }
 };
+
+// exports.uploadDriverDocument = async (req, res) => {
+//   try {
+//     const driverId = req.params.id;
+//     let response = null; // defining a response variable to handle different responses
+
+//     if (req.body.documentType === "PROFILE") {
+//       const driver = await Driver.findOne({ where: { id: driverId } });
+//       if (driver) {
+//         driver.profilePhoto = req.file.path;
+//         await driver.save();
+//         response = { message: "Profile photo updated successfully!" }; // set response when profile photo updated
+//       }
+//       // You can handle the scenario when user is not found if needed
+//     } else {
+//       const documentDetails = {
+//         driverId,
+//         documentType: req.body.documentType,
+//         documentLink: req.file.path,
+//         expiryDate: req.body.expiryDate,
+//         verificationStatus: req.body.verificationStatus || "PENDING",
+//       };
+
+//       response = await DriverDocument.create(documentDetails); // set response as the created document
+//     }
+
+//     res.status(201).send(response); // send the appropriate response
+//   } catch (error) {
+//     res.status(500).send({ message: "Error uploading document!" });
+//   }
+// };
 
 exports.getDriverRatings = async (req, res) => {
   try {
@@ -399,4 +461,69 @@ exports.getDriverDashboardData = async (req, res) => {
   // } catch (error) {
   //   res.status(500).json({ error: error.message });
   // }
+};
+
+exports.getDriverWithDocuments = async (req, res) => {
+  try {
+    const driverId = req.params.driverId; // Assuming the driver ID is passed as a URL parameter
+
+    const driver = await Driver.findOne({
+      where: { id: driverId },
+      include: [
+        {
+          model: DriverDocument,
+          as: "documents", // Giving it an alias for easier access in the response
+        },
+      ],
+    });
+
+    if (!driver) {
+      return res.status(404).send({ message: "Driver not found!" });
+    }
+
+    res.status(200).send(driver);
+  } catch (error) {
+    res.status(500).send({ message: "Error retrieving driver data!" });
+  }
+};
+exports.updateDriverOrVehicle = async (req, res) => {
+  const { driverId } = req.params;
+  const { driver, vehicle } = req.body;
+  console.log(req.body);
+  try {
+    const existingDriver = await Driver.findByPk(driverId);
+
+    if (!existingDriver) {
+      return res.status(404).send({ message: "Driver not found!" });
+    }
+
+    // If the 'driver' object is present in the request, update the driver details
+    if (driver) {
+      await existingDriver.update(driver);
+    }
+
+    // If the 'vehicle' object is present in the request, handle the vehicle data
+    if (vehicle) {
+      let existingVehicle = await Vehicle.findOne({
+        where: { driverId: existingDriver.id },
+      });
+
+      if (existingVehicle) {
+        // Update existing vehicle
+        await existingVehicle.update(vehicle);
+      } else {
+        // Create new vehicle for driver
+        await Vehicle.create({ ...vehicle, driverId: existingDriver.id });
+      }
+    }
+
+    return res
+      .status(200)
+      .send({ message: "Driver and/or vehicle details updated successfully!" });
+  } catch (error) {
+    console.error("Error while updating driver or vehicle:", error);
+    return res
+      .status(500)
+      .send({ message: "Error updating driver or vehicle!" });
+  }
 };

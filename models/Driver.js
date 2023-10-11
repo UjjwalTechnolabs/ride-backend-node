@@ -90,6 +90,10 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: "driverId",
       as: "driverActivities",
     });
+    Driver.hasMany(models.DriverDocument, {
+      foreignKey: "driverId",
+      as: "documents", // using "documents" as the alias for clarity
+    });
   };
   return Driver;
 };

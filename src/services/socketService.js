@@ -29,6 +29,7 @@ const {
 const { sendSMS } = require("../controllers/alertController");
 const app = require("../app");
 const Redis = require("ioredis");
+const { sendRideConfirmationToDriver } = require("./rideNotificationService");
 const redis = new Redis();
 let io;
 let driversAttempted = {};
@@ -129,6 +130,7 @@ exports.initializeSocketIO = (socketIOInstance) => {
     });
 
     socket.on("identifyDriver", (driverId) => {
+      console.log(driverId);
       socket.join(driverId);
       driverSocketMap[socket.id] = driverId;
       console.log(`Driver ${driverId} identified.`);
@@ -412,9 +414,29 @@ exports.initializeSocketIO = (socketIOInstance) => {
         );
 
         if (data.status === "accepted") {
-          // ... existing acceptance code ...
-          console.log(`Driver ${data.driverId} has accepted the ride.`);
+          console.log(
+            `Driver ${data.driverId} is attempting to accept the ride.`
+          );
           // Notify the user about the driver's acceptance
+
+          const [updatedCountForRide] = await Ride.update(
+            { driverId: driverId },
+            {
+              where: {
+                id: data.rideId,
+                driverId: null, // Ensure that no driver has been assigned yet
+              },
+            }
+          );
+
+          // If no ride rows were updated, then the ride was already accepted by someone else.
+          if (updatedCountForRide === 0) {
+            console.warn(
+              `Ride ${data.rideId} was already accepted by another driver.`
+            );
+            return; // Exit out of the function early
+          }
+
           await NotifiedDriver.update(
             { status: "accepted" },
             {
@@ -424,14 +446,29 @@ exports.initializeSocketIO = (socketIOInstance) => {
               },
             }
           );
+
           await Driver.update(
             { onlineStatus: "ON_TRIP" },
             { where: { id: data.driverId } }
           );
-          await Ride.update(
-            { driverId: driverId },
-            { where: { id: data.rideId } }
+
+          console.log(
+            `Driver ${data.driverId} has successfully accepted the ride.`
           );
+
+          // Now notify other drivers that the ride has been accepted by someone else
+          const notifiedDrivers = await getNotifiedDriversForRide(data.rideId);
+
+          // Now notify other drivers that the ride has been accepted by someone else
+          for (let otherDriver of notifiedDrivers) {
+            if (otherDriver.id !== data.driverId) {
+              // Don't notify the driver who accepted the ride
+              io.to(otherDriver.id).emit("ride-accepted-by-other", {
+                rideId: data.rideId,
+                message: "Ride accepted by another driver.",
+              });
+            }
+          }
 
           io.to("available-drivers").emit("ride-accepted", {
             rideId: data.rideId,
@@ -442,18 +479,66 @@ exports.initializeSocketIO = (socketIOInstance) => {
           handleDriverAcceptance(data.rideId);
         } else if (data.status === "rejected") {
           console.log(`Driver ${data.driverId} has rejected the ride.`);
-          // if (!driversAttempted[data.rideId]) {
-          //   driversAttempted[data.rideId] = [];
-          // }
-          // driversAttempted[data.rideId].push(data.driverId);
-
-          // Retry with another driver
-          // assignDriver(data.rideId, data.pickupLocation);
+          // ... Your existing rejection handling code ...
         }
       } catch (error) {
         console.error("Error processing driver-response:", error);
       }
     });
+
+    // socket.on("driver-response", async (data) => {
+    //   try {
+    //     const driverId = driverSocketMap[socket.id];
+    //     // Update the NotifiedDriver table status
+    //     await updateDriverStatusForRide(
+    //       data.rideId,
+    //       data.driverId,
+    //       data.status
+    //     );
+
+    //     if (data.status === "accepted") {
+    //       // ... existing acceptance code ...
+    //       console.log(`Driver ${data.driverId} has accepted the ride.`);
+    //       // Notify the user about the driver's acceptance
+    //       await NotifiedDriver.update(
+    //         { status: "accepted" },
+    //         {
+    //           where: {
+    //             rideRequestId: data.rideId,
+    //             driverId: data.driverId,
+    //           },
+    //         }
+    //       );
+    //       await Driver.update(
+    //         { onlineStatus: "ON_TRIP" },
+    //         { where: { id: data.driverId } }
+    //       );
+    //       await Ride.update(
+    //         { driverId: driverId },
+    //         { where: { id: data.rideId } }
+    //       );
+
+    //       io.to("available-drivers").emit("ride-accepted", {
+    //         rideId: data.rideId,
+    //         driverId: data.driverId,
+    //         message: "Your ride has been accepted!",
+    //       });
+
+    //       handleDriverAcceptance(data.rideId);
+    //     } else if (data.status === "rejected") {
+    //       console.log(`Driver ${data.driverId} has rejected the ride.`);
+    //       // if (!driversAttempted[data.rideId]) {
+    //       //   driversAttempted[data.rideId] = [];
+    //       // }
+    //       // driversAttempted[data.rideId].push(data.driverId);
+
+    //       // Retry with another driver
+    //       // assignDriver(data.rideId, data.pickupLocation);
+    //     }
+    //   } catch (error) {
+    //     console.error("Error processing driver-response:", error);
+    //   }
+    // });
 
     socket.on("driver-no-response", async (data) => {
       try {
@@ -509,35 +594,50 @@ exports.broadcastRideCreation = (rideId) => {
   io.emit("ride-created", rideId);
 };
 
-// exports.broadcastRideRequestToAvailableDrivers = (rideDetails) => {
-//   if (!io) {
-//     console.error("Socket.io is not initialized!");
-//     return;
-//   }
-//   console.log("Broadcasting ride request to available drivers:", rideDetails);
-//   io.to("available-drivers").emit("ride-request", rideDetails);
-// };
 exports.broadcastRideRequestToAvailableDrivers = async (rideDetails) => {
   if (!io) {
     console.error("Socket.io is not initialized!");
     return;
   }
 
-  // Fetch available drivers based on the pickup location.
   const availableDrivers = await getAvailableDrivers(
     rideDetails.pickupLocation
   );
-
-  // Extract the driver IDs from the result.
-  const driverIds = availableDrivers.map((driver) => driver.id);
+  delete rideDetails.drivers;
 
   console.log("Broadcasting ride request to available drivers:", rideDetails);
 
-  // Emitting the request to each driver individually
-  for (let driverId of driverIds) {
-    io.to(driverId).emit("ride-request", rideDetails);
-    await logNotifiedDriver(rideDetails.rideId, driverId);
-  }
+  // Use Promise.all to send notifications in parallel
+  await Promise.all(
+    availableDrivers.map(async (driver) => {
+      try {
+        const isNotificationSent = await sendRideConfirmationToDriver(
+          driver.fcmToken
+        );
+
+        if (isNotificationSent) {
+          const dataToEmit = {
+            rideId: rideDetails.rideId,
+            pickupLocation: rideDetails.pickupLocation,
+            dropoffLocation: rideDetails.dropoffLocation,
+            // ... other fields as needed
+          };
+
+          io.to(driver.id).emit("ride-request", dataToEmit);
+          await logNotifiedDriver(rideDetails.rideId, driver.id);
+        } else {
+          console.warn(
+            `Failed to send notification to driver with ID: ${driver.id}`
+          );
+        }
+      } catch (error) {
+        console.error(
+          `Error while processing driver with ID: ${driver.id}`,
+          error
+        );
+      }
+    })
+  );
 };
 
 exports.removeDriverFromAvailable = (driverId) => {
@@ -588,12 +688,13 @@ async function decideLocation(pickupLocation, dropoffLocation) {
 
 const getAvailableDrivers = async (pickupLocation, excludeDriverIds = []) => {
   return Driver.findAll({
+    attributes: ["id", "fcmToken"],
     where: {
       id: { [Op.notIn]: excludeDriverIds },
       isAvailable: true,
-      onlineStatus: {
-        [Op.not]: "ON_TRIP",
-      },
+      // onlineStatus: {
+      //   [Op.not]: "ON_TRIP",
+      // },
       [Op.and]: [
         Sequelize.where(
           Sequelize.fn(
@@ -614,9 +715,29 @@ const getAvailableDrivers = async (pickupLocation, excludeDriverIds = []) => {
         ),
       ],
     },
-    limit: 5,
+    limit: 10,
   });
 };
+async function getNotifiedDriversForRide(rideId) {
+  try {
+    const notifiedDrivers = await NotifiedDriver.findAll({
+      where: {
+        rideRequestId: rideId,
+      },
+      include: [
+        {
+          model: Driver, // Assuming you've imported the Driver model at the top
+          as: "driver",
+        },
+      ],
+    });
+
+    return notifiedDrivers.map((notification) => notification.driver);
+  } catch (error) {
+    console.error("Error fetching notified drivers:", error);
+    return [];
+  }
+}
 function calculateLoyaltyPoints(fare) {
   // For example, 1 point for every 10 rupees spent
   return Math.floor(fare / 10);
@@ -625,6 +746,18 @@ function calculateDriverEarnings(actualFare) {
   // Driver gets 80% of the fare
   const driverPercentage = 0.8;
   return actualFare * driverPercentage;
+}
+async function removeInvalidTokenFromDatabase(fcmToken) {
+  try {
+    await Driver.destroy({
+      where: {
+        fcmToken: fcmToken,
+      },
+    });
+    console.log(`Removed invalid FCM token: ${fcmToken}`);
+  } catch (error) {
+    console.error(`Error removing FCM token ${fcmToken} from database:`, error);
+  }
 }
 app.get("/last-location/:userId", (req, res) => {
   res.json(locations[req.params.userId] || {});

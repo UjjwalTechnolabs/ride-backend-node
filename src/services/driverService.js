@@ -7,7 +7,7 @@ const MAX_RETRIES = 3;
 let driverHasAccepted = false; // At the top of your service, near your other variables
 let driversAttempted = {}; // Keeping track of drivers who've been notified for a particular ride
 
-exports.assignDriver = async (rideId, pickupLocation) => {
+exports.assignDriver = async (rideId, pickupLocation, dropoffLocation) => {
   let retryCount = 0;
 
   const initiateDriverSearchAndNotification = async () => {
@@ -25,6 +25,7 @@ exports.assignDriver = async (rideId, pickupLocation) => {
     await kafkaService.notifyAllDriversViaKafka(drivers, {
       rideId,
       pickupLocation,
+      dropoffLocation,
     });
     // console.log("Found drivers:", drivers);
     return drivers; // Return drivers list
@@ -78,9 +79,9 @@ const getAvailableDrivers = async (pickupLocation, excludeDriverIds = []) => {
     where: {
       id: { [Op.notIn]: excludeDriverIds },
       isAvailable: true,
-      onlineStatus: {
-        [Op.not]: "ON_TRIP",
-      },
+      // onlineStatus: {
+      //   [Op.not]: "ON_TRIP",
+      // },
       [Op.and]: [
         Sequelize.where(
           Sequelize.fn(
@@ -101,7 +102,7 @@ const getAvailableDrivers = async (pickupLocation, excludeDriverIds = []) => {
         ),
       ],
     },
-    limit: 5,
+    limit: 10,
   });
 };
 // ...
