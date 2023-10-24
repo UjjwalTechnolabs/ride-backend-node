@@ -51,6 +51,8 @@ const paymentRoutes = require("./routes/paymentRoutes"); // adjust the path acco
 const transactionRoutes = require("./routes/transactionRoutes"); // adjust the path accordingly
 const userRoutes = require("./routes/userRoutes");
 const energyTypeRoutes = require("./routes/energyTypeRoutes");
+const adminRoutes = require("./routes/adminRoutes");
+const roleRoutes = require("./routes/roleRoutes");
 
 // This should print: उपयोगकर्ता आईडी
 // Middleware to parse JSON requests
@@ -73,6 +75,9 @@ app.use("/api/v1", paymentRoutes); // register the router
 app.use("/api/v1", transactionRoutes); // register the router
 app.use("/api/v1", userRoutes);
 app.use("/api/v1", energyTypeRoutes);
+app.use("/api/v1", adminRoutes);
+app.use("/api/v1/role", roleRoutes);
+
 // Test route
 app.get("/", (req, res) => {
   res.send("Uber Clone Backend");

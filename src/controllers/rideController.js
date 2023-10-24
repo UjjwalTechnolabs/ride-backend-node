@@ -22,7 +22,14 @@ exports.bookRide = async (req, res) => {
   const transaction = await sequelize.transaction();
 
   //try {
-  const { userId, pickupLocation, dropoffLocation, vehicleTypeId } = req.body;
+  const {
+    userId,
+    pickupLocation,
+    dropoffLocation,
+    vehicleTypeId,
+    pickupAddress,
+    dropoffAddress,
+  } = req.body;
 
   const vehicleType = await VehicleType.findOne(
     {
@@ -48,33 +55,30 @@ exports.bookRide = async (req, res) => {
     });
   }
   const userCurrencyCode = user.currency_code;
-  const distance =
+  const rawDistance =
     getDistance(
       { latitude: pickupLocation[0], longitude: pickupLocation[1] },
       { latitude: dropoffLocation[0], longitude: dropoffLocation[1] }
     ) / 1000;
 
-  const eta = await calculateETA(pickupLocation, dropoffLocation);
-  // if (isNaN(eta)) {
-  //   await transaction.rollback();
-  //   return res.status(500).json({
-  //     status: "error",
-  //     message: "Failed to calculate ETA.",
-  //   });
-  // }
+  let distance;
+  let unit;
 
-  //const fare = await calculateFare(distance, vehicleTypeId);
+  const eta = await calculateETA(pickupLocation, dropoffLocation);
+
+  //const fare = await calculateFare(rawDistance, vehicleTypeId);
   const serviceType = vehicleType.name; // Assuming that 'name' is the field containing the service type in VehicleType model
 
   const location = await decideLocation(pickupLocation, dropoffLocation); // Using await to wait for the decideLocation function
 
   const fare = await calculateFare(
-    distance,
+    rawDistance,
     vehicleTypeId,
     userCurrencyCode,
     serviceType,
     location
   );
+  console.log(fare);
 
   const pointsToAdd = Math.floor(fare / 10); // ₹100 की राइड पर 10 पॉइंट्स मिलेंगे, इसलिए fare को 10 से डिवाइड करते हैं।
   let loyaltyPoints = await LoyaltyPoints.findOne(
@@ -103,10 +107,14 @@ exports.bookRide = async (req, res) => {
       fare: fare,
       ETA: `${eta} mins`,
       requestedAt: new Date(),
-      fuelConsumption: distance * vehicleType.fuelConsumption,
+      fuelConsumption: rawDistance * vehicleType.fuelConsumption,
+      pickupAddress: pickupAddress,
+      dropoffAddress: dropoffAddress,
     },
     { transaction }
   );
+  var withCurrencySybolFare = userCurrencyCode + ":" + fare;
+  var timing = `${eta} mins`;
   // This should ideally be fetched from the user's record or another source.
   // const userFcmToken = user.fcmToken;
   // const notificationSent = await rideNotificationService.sendRideConfirmation(
@@ -118,8 +126,75 @@ exports.bookRide = async (req, res) => {
   //   // Depending on your requirements, you might want to rollback the transaction here.
   // }
 
+  //const settings = countrySettings[userCurrencyCode];
+  const settings = userCurrencyCode || countrySettings[userCountry].currency;
+  if (!settings) {
+    console.error("No country settings found for:", userCurrencyCode);
+    // handle this scenario, e.g., default to metric or throw an error
+    return;
+  }
+
+  if (settings.unit === "imperial") {
+    // Convert meters to miles for distance > 1000 meters.
+    // For distance < 1000 meters, keep it in meters.
+    if (rawDistance < 1000) {
+      distance = rawDistance;
+      unit = "meter";
+    } else {
+      distance = (rawDistance / 1000) * 0.621371;
+      unit = distance === 1 ? "mile" : "miles"; // Singular vs Plural
+    }
+  } else {
+    // metric
+    if (rawDistance < 1000) {
+      distance = rawDistance;
+      unit = "meter";
+    } else {
+      distance = rawDistance / 1000;
+      unit = distance === 1 ? "km" : "kms"; // Singular vs Plural
+    }
+  }
+  var dis = distance + " " + unit;
+
+  const BASE_IMAGE_URL = "https://yourserver.com/images/";
+  let userName = "";
+  if (user.first_name && user.last_name) {
+    userName = `${user.first_name} ${user.last_name}`;
+  } else if (user.first_name) {
+    userName = user.first_name;
+  } else if (user.last_name) {
+    userName = user.last_name;
+  }
+
+  // Fetch the profile image URL
+  const profileImageUrl = user.profile_image
+    ? BASE_IMAGE_URL + user.profile_image
+    : null;
+
+  // Mock fetching user rating
+  // TODO: Replace with your actual method of fetching user rating when implemented
+  const getUserRating = (userId) => {
+    // This is a mock function, replace it with your actual logic.
+    return 4.5; // Example: returning a static 4.5 rating for now.
+  };
+  const userRating = getUserRating(userId);
+
   await transaction.commit();
-  await assignDriver(newRide.id, pickupLocation, dropoffLocation);
+  await assignDriver(
+    newRide.id,
+    vehicleTypeId,
+    pickupLocation,
+    dropoffLocation,
+    pickupAddress,
+    dropoffAddress,
+    withCurrencySybolFare,
+    timing,
+    dis,
+    profileImageUrl, // Added this
+    userRating,
+    userName
+  );
+
   //broadcastRideCreation(newRide.id);
   res.status(201).json({
     status: "success",
@@ -422,3 +497,135 @@ async function decideLocation(pickupLocation, dropoffLocation) {
 
   return "Other";
 }
+const countrySettings = {
+  US: {
+    unit: "imperial", // Most measurements in the US are in imperial units.
+    currency: "USD",
+    language: "en-US",
+  },
+  FR: {
+    unit: "metric", // European countries mostly use metric units.
+    currency: "EUR",
+    language: "fr-FR",
+  },
+  IN: {
+    unit: "metric", // India uses metric units for most measurements.
+    currency: "INR",
+    language: "hi-IN", // Note: India has multiple languages, Hindi being the most spoken.
+  },
+  GB: {
+    unit: "imperial", // The UK uses a mix, but miles for distances.
+    currency: "GBP",
+    language: "en-GB",
+  },
+  CA: {
+    unit: "metric",
+    currency: "CAD",
+    language: "en-CA",
+  },
+  DE: {
+    unit: "metric",
+    currency: "EUR",
+    language: "de-DE",
+  },
+  AU: {
+    unit: "metric",
+    currency: "AUD",
+    language: "en-AU",
+  },
+  BR: {
+    unit: "metric",
+    currency: "BRL",
+    language: "pt-BR",
+  },
+  RU: {
+    unit: "metric",
+    currency: "RUB",
+    language: "ru-RU",
+  },
+  CN: {
+    unit: "metric",
+    currency: "CNY",
+    language: "zh-CN",
+  },
+  JP: {
+    unit: "metric",
+    currency: "JPY",
+    language: "ja-JP",
+  },
+  ZA: {
+    unit: "metric",
+    currency: "ZAR",
+    language: "en-ZA",
+  },
+  MX: {
+    unit: "metric",
+    currency: "MXN",
+    language: "es-MX",
+  },
+  // ... you can continue to add more countries as needed.
+};
+exports.getAllTrips = async (req, res) => {
+  try {
+    const rides = await Ride.findAll({
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: ["first_name", "last_name"], // Only fetch the necessary fields
+        },
+        {
+          model: Driver,
+          as: "driver",
+          attributes: ["name"],
+        },
+      ],
+      order: [
+        ["createdAt", "DESC"], // Order by most recent first
+      ],
+    });
+    const formatDate = (dateString) => {
+      const months = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+      ];
+      const dateObj = new Date(dateString);
+      return `${dateObj.getUTCDate()} ${
+        months[dateObj.getUTCMonth()]
+      } ${dateObj.getUTCFullYear()}`;
+    };
+    const formattedRides = rides.map((ride) => {
+      return {
+        orderId: ride.id,
+        created: formatDate(ride.createdAt),
+        driverName: ride.driver ? ride.driver.name : "Unknown Driver",
+        userName: ride.user
+          ? `${ride.user.first_name} ${ride.user.last_name}`
+          : "Unknown User",
+
+        distance: ride.distanceFormatted || ride.distance, // Use formatted distance or default to raw value
+        amount: ride.fareFormatted || ride.fare, // Use formatted fare or default to raw value
+
+        // Add this if you have discounts in your DB
+        status: ride.status,
+        paymentMode: ride.paymentMode, // Add this if you have payment modes in your DB
+        // Add other necessary fields
+      };
+    });
+
+    return res.status(200).json(formattedRides);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+};

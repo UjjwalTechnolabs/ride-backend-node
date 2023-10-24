@@ -9,6 +9,20 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.GEOMETRY("POINT"),
       allowNull: false,
     },
+    distance: {
+      type: DataTypes.FLOAT,
+      allowNull: true, // Allow NULL if you think the distance might not always be provided
+      defaultValue: 0,
+    },
+
+    pickupAddress: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    dropoffAddress: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
     vehicleTypeKey: {
       type: DataTypes.INTEGER,
       allowNull: true, // Temporarily allow null
@@ -16,6 +30,18 @@ module.exports = (sequelize, DataTypes) => {
         model: "VehicleTypes",
         key: "id",
       },
+    },
+    paymentMode: {
+      type: DataTypes.STRING,
+      defaultValue: "CASH",
+    },
+    fareFormatted: {
+      type: DataTypes.STRING,
+      allowNull: true, // Allow null initially, you can set this value after fare calculation
+    },
+    distanceFormatted: {
+      type: DataTypes.STRING,
+      allowNull: true, // Allow null initially, you can set this value after distance calculation
     },
     fare: {
       type: DataTypes.FLOAT,
@@ -41,6 +67,11 @@ module.exports = (sequelize, DataTypes) => {
     fuelConsumption: {
       type: DataTypes.FLOAT,
       allowNull: true, // You might allow this to be NULL if the value can be absent or not known at the time of ride creation.
+    },
+    version: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
     },
   });
 

@@ -1,4 +1,4 @@
-const { Driver, Ride } = require("../../models");
+const { Driver, Ride, Vehicle } = require("../../models");
 const { Op, Sequelize } = require("sequelize");
 const kafkaService = require("./kafkaService");
 const socketService = require("./socketService");
@@ -7,13 +7,27 @@ const MAX_RETRIES = 3;
 let driverHasAccepted = false; // At the top of your service, near your other variables
 let driversAttempted = {}; // Keeping track of drivers who've been notified for a particular ride
 
-exports.assignDriver = async (rideId, pickupLocation, dropoffLocation) => {
+exports.assignDriver = async (
+  rideId,
+  vehicleTypeId,
+  pickupLocation,
+  dropoffLocation,
+  pickupAddress,
+  dropoffAddress,
+  withCurrencySybolFare,
+  timing,
+  distance,
+  profileImageUrl, // Added this
+  userRating,
+  userName
+) => {
   let retryCount = 0;
 
   const initiateDriverSearchAndNotification = async () => {
     // const drivers = await getAvailableDrivers(pickupLocation);
     const drivers = await getAvailableDrivers(
       pickupLocation,
+      vehicleTypeId,
       driversAttempted[rideId]
     );
 
@@ -24,8 +38,17 @@ exports.assignDriver = async (rideId, pickupLocation, dropoffLocation) => {
 
     await kafkaService.notifyAllDriversViaKafka(drivers, {
       rideId,
+      vehicleTypeId,
       pickupLocation,
       dropoffLocation,
+      pickupAddress,
+      dropoffAddress,
+      withCurrencySybolFare,
+      timing,
+      distance,
+      profileImageUrl, // Added this
+      userRating,
+      userName,
     });
     // console.log("Found drivers:", drivers);
     return drivers; // Return drivers list
@@ -74,14 +97,18 @@ const updateDriverAndRide = async (driver, rideId) => {
   // Notifying the user that a driver has been assigned using Socket.io.
   socketService.emitRideUpdate(rideId, { status: "Driver Assigned", driver });
 };
-const getAvailableDrivers = async (pickupLocation, excludeDriverIds = []) => {
+const getAvailableDrivers = async (
+  pickupLocation,
+  vehicleTypeId,
+  excludeDriverIds = []
+) => {
   return Driver.findAll({
     where: {
       id: { [Op.notIn]: excludeDriverIds },
       isAvailable: true,
-      // onlineStatus: {
-      //   [Op.not]: "ON_TRIP",
-      // },
+      onlineStatus: {
+        [Op.not]: "ON_TRIP",
+      },
       [Op.and]: [
         Sequelize.where(
           Sequelize.fn(
@@ -102,9 +129,50 @@ const getAvailableDrivers = async (pickupLocation, excludeDriverIds = []) => {
         ),
       ],
     },
-    limit: 10,
+    include: [
+      {
+        model: Vehicle, // Assuming you have the vehicle model initialized and available
+        as: "vehicle", // You may need to check the actual alias you have in your setup.
+        where: {
+          vehicleTypeId: vehicleTypeId,
+        },
+      },
+    ],
+    limit: 30,
   });
 };
+
+// const getAvailableDrivers = async (pickupLocation, excludeDriverIds = []) => {
+//   return Driver.findAll({
+//     where: {
+//       id: { [Op.notIn]: excludeDriverIds },
+//       isAvailable: true,
+//       onlineStatus: {
+//         [Op.not]: "ON_TRIP",
+//       },
+//       [Op.and]: [
+//         Sequelize.where(
+//           Sequelize.fn(
+//             "ST_DWithin",
+//             Sequelize.col("location"),
+//             Sequelize.fn(
+//               "ST_SetSRID",
+//               Sequelize.fn(
+//                 "ST_MakePoint",
+//                 pickupLocation[0],
+//                 pickupLocation[1]
+//               ),
+//               4326
+//             ),
+//             10000
+//           ),
+//           true
+//         ),
+//       ],
+//     },
+//     limit: 30,
+//   });
+// };
 // ...
 // let energyTypeFilter = {};
 // if (userPreference === 'eco-friendly') {

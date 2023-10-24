@@ -14,8 +14,11 @@ const {
   sequelize,
   Location,
   UserWallet,
+  Vehicle,
+  Currency,
 } = require("../../models");
-const { Op, Sequelize } = require("sequelize");
+const { Op, Sequelize, Transaction } = require("sequelize");
+
 const { handleDriverAcceptance, assignDriver } = require("./driverService");
 const {
   updateDriverStatusForRide,
@@ -229,109 +232,114 @@ exports.initializeSocketIO = (socketIOInstance) => {
       console.log(data);
       try {
         const actualDriverId = driverSocketMap[socket.id];
-        // Update the Ride table status to 'COMPLETED'
-        //await Ride.update({ status: "COMPLETED" }, { where: { id: rideId } });
-        // वास्तविक दूरी और वाहन के प्रकार से किराया की गणना
+        console.log(
+          `Processing rideCompleted for Driver ID: ${actualDriverId}, Ride ID: ${data.rideId}`
+        );
+
+        // Fetch the ride
         const ride = await Ride.findByPk(data.rideId);
+        if (!ride) {
+          console.error(`Ride not found for ID: ${data.rideId}`);
+          return;
+        }
+
+        // Process location
+        console.log(data);
+        // const receivedLocationString = data.dropoffLocation;
+        // const parsedLocation = parseLocation(receivedLocationString);
+        const receivedDropoff = {
+          type: "Point",
+          coordinates: data.dropoffLocation.reverse(),
+        };
+        ride.dropoffLocation = receivedDropoff;
+
+        const result = await calculateETAFinal(
+          ride.pickupLocation.coordinates,
+          ride.dropoffLocation.coordinates
+        );
+
+        if (!result || !result.distance) {
+          console.error(`Failed to calculate ETA for Ride ID: ${data.rideId}`);
+          return;
+        }
 
         const vehicleType = await VehicleType.findOne({
           where: { id: ride.vehicleTypeKey },
         });
 
         if (!vehicleType) {
-          await transaction.rollback();
-          return res.status(400).json({
-            status: "fail",
-            message: "Vehicle type does not exist.",
-          });
+          console.error(
+            `Vehicle type not found for ID: ${ride.vehicleTypeKey}`
+          );
+          return;
         }
         const serviceType = vehicleType.name;
+
         const user = await User.findByPk(ride.userId);
         if (!user) {
-          return res.status(400).json({
-            status: "fail",
-            message: "User does not exist.",
-          });
+          console.error(`User not found for ID: ${ride.userId}`);
+          return;
         }
+
         const location = await decideLocation(
           ride.pickupLocation,
           ride.dropoffLocation
-        ); // Using await to wait for the decideLocation function
-        console.log(
-          "datas",
-          data.actualDistance,
-          ride.vehicleTypeKey,
-          user.userCurrencyCode,
-          serviceType,
-          location
         );
         const actualFare = await calculateFare(
-          data.actualDistance,
+          result.distance,
           ride.vehicleTypeKey,
-
           user.currency_code,
           serviceType,
-          // Assuming that 'name' is the field containing the service type in VehicleType model
-
           location
         );
 
+        // Update Driver Earnings
         const earnings = calculateDriverEarnings(actualFare);
         await DriverEarnings.create({
           driverId: actualDriverId,
           rideId: data.rideId,
           earnings: earnings,
         });
-        const driver = await Driver.findByPk(actualDriverId);
-        const driverWallet = await Wallet.findOne({
-          where: { driverId: actualDriverId },
-        });
-        if (driverWallet) {
-          driverWallet.balance += earnings; // Increment the wallet balance by the earnings
-          await driverWallet.save();
-        } else {
-          // If the driver doesn't have a wallet, create a new one with the earnings as initial balance
-          await Wallet.create({
-            driverId: actualDriverId,
-            balance: earnings,
-            currencyCode: driver.preferredCurrency,
-          });
-        }
-        // this should be implement
-
-        const userWallet = await UserWallet.findOne({
-          where: { userId: ride.userId },
-        });
-
-        if (userWallet) {
-          userWallet.balance -= actualFare; // Decrement the wallet balance by the fare amount
-          await userWallet.save();
-        } else {
-          // If the user doesn't have a wallet, create a new one with a negative balance equal to the fare.
-          // However, this scenario might be problematic in real-world applications - you typically don't want users to have negative balances.
-          await UserWallet.create({
-            userId: ride.userId,
-            balance: -actualFare,
-            currencyCode: user.currency_code,
-          });
-        }
-        // ETA की गणना
-        const receivedDropoff = {
-          type: "Point",
-          coordinates: data.dropoffLocation, // यह आपके एप्लिकेशन से प्राप्त डेटा होगा
-        };
-        ride.dropoffLocation = receivedDropoff;
-
-        const updatedEta = await calculateETAFinal(
-          ride.pickupLocation.coordinates,
-          ride.dropoffLocation.coordinates
+        console.log(
+          `Earnings updated for Driver ID: ${actualDriverId}, Ride ID: ${data.rideId}`
         );
-        const etaString = `${updatedEta} mins`;
+        // This will come from your user's data
+        const distanceUnit = getUnitByCurrency(user.currency_code);
 
-        // Update the Ride table with status, actual fare, ETA, and actual distance
-        // Add loyalty points for the user based on fare
+        const currencyDetails = await Currency.findByPk(user.currency_code);
+        if (!currencyDetails) {
+          console.error(`Currency not found for code: ${user.currency_code}`);
+          return;
+        }
+        console.log(result.distance);
+        const formattedFare = formatAmount(actualFare, currencyDetails.symbol);
+        const formattedDistance = formatDistance(
+          parseFloat(result.distance),
+          distanceUnit
+        );
+
+        // Calculate ETA and Update Ride table
+        const etaString = `${result.eta} mins`;
+        await Ride.update(
+          {
+            dropoffLocation: receivedDropoff,
+            status: "COMPLETED",
+            fare: actualFare,
+            ETA: etaString,
+            distance: result.distance,
+            pickedUpAt: new Date(),
+            fareFormatted: formattedFare,
+            distanceFormatted: formattedDistance,
+          },
+          { where: { id: data.rideId } }
+        );
+
+        console.log(
+          `Ride status updated to COMPLETED for Ride ID: ${data.rideId}`
+        );
+
+        // Update Loyalty Points
         const pointsToAdd = calculateLoyaltyPoints(actualFare);
-
         let loyaltyPoints = await LoyaltyPoints.findOne({
           where: { userId: ride.userId },
         });
@@ -341,59 +349,46 @@ exports.initializeSocketIO = (socketIOInstance) => {
             userId: ride.userId,
             points: pointsToAdd,
           });
+          console.log(`Loyalty points created for User ID: ${ride.userId}`);
         } else {
           loyaltyPoints.points += pointsToAdd;
           await loyaltyPoints.save();
+          console.log(`Loyalty points updated for User ID: ${ride.userId}`);
         }
 
-        await Ride.update(
-          {
-            dropoffLocation: receivedDropoff,
-            status: "COMPLETED",
-            fare: actualFare,
-            ETA: etaString,
-            pickedUpAt: new Date(),
-          },
-          { where: { id: data.rideId } }
-        );
-        // await RideHistory.create({
-        //   userId: ride.userId,
-        //   driverId: actualDriverId,
-        //   rideId: data.rideId,
-        //   fare: actualFare,
-        //   distance: data.actualDistance,
-        //   pickupLocation: data.pickupLocation, // Assuming data contains pickupLocation
-        //   dropoffLocation: data.dropoffLocation, // Assuming data contains dropoffLocation
-        //   startTime: data.startTime, // Assuming data contains startTime
-        //   endTime: data.endTime, // Assuming data contains endTime
-        //   vehicleDetails: data.vehicleDetails, // Assuming data contains vehicleDetails
-        //   feedback: data.feedback, // Assuming data contains feedback
-        //   rating: data.rating, // Assuming data contains rating
-        // });
-
-        // Update the NotifiedDriver table status for this driver to 'accepted' for this ride
-        // This assumes your ride requests to drivers are stored with a status like 'notified' or 'accepted'
+        // Update NotifiedDriver table and Driver status
         await NotifiedDriver.update(
           { status: "accepted" },
           { where: { rideRequestId: data.rideId, driverId: actualDriverId } }
         );
+        console.log(
+          `NotifiedDriver status updated for Driver ID: ${actualDriverId}, Ride ID: ${data.rideId}`
+        );
+
         await Driver.update(
           { onlineStatus: "ONLINE" },
-          { where: { id: actualDriverId } } // Assuming the socket ID corresponds to the driver's ID
+          { where: { id: actualDriverId } }
         );
-        var rId = data.rideId;
+        console.log(
+          `Driver status set to ONLINE for Driver ID: ${actualDriverId}`
+        );
+
+        // Emit event to frontend
         io.to(data.rideId).emit("ride-completed", {
-          rId,
+          rId: data.rideId,
           driverId: actualDriverId,
         });
+
         socket.leave(`chat:${data.rideId}`);
-        //delete driverSocketMap[socket.id];
+        console.log(
+          `Driver ${actualDriverId} left chat room for Ride ID: ${data.rideId}`
+        );
         console.log(
           `Driver ${actualDriverId} has completed ride ${data.rideId}`
         );
       } catch (error) {
         console.error(
-          `Error updating status for completed ride ${data.rideId}:`,
+          `Error processing rideCompleted for Ride ID: ${data.rideId}:`,
           error
         );
       }
@@ -403,83 +398,203 @@ exports.initializeSocketIO = (socketIOInstance) => {
       // Send this response to Kafka or directly process it
       kafkaService.processDriverResponse(response); // This function can be in kafkaService or another service that deals with driver responses
     });
+
+    // socket.on("driver-response", async (data) => {
+    //   try {
+    //     const driverId = driverSocketMap[socket.id];
+
+    //     await updateDriverStatusForRide(
+    //       data.rideId,
+    //       data.driverId,
+    //       data.status
+    //     );
+
+    //     if (data.status === "accepted") {
+    //       console.log(
+    //         `Driver ${data.driverId} is attempting to accept the ride.`
+    //       );
+
+    //       const result = await sequelize.transaction(async (t) => {
+    //         const existingRide = await Ride.findOne({
+    //           where: {
+    //             id: data.rideId,
+    //             driverId: null,
+    //           },
+    //           lock: Transaction.LOCK.UPDATE,
+    //           transaction: t,
+    //         });
+
+    //         if (!existingRide) {
+    //           console.log(
+    //             `Ride ${data.rideId} was already accepted by another driver.`
+    //           );
+    //           io.to(socket.id).emit("ride-already-accepted", {
+    //             rideId: data.rideId,
+    //             message:
+    //               "Sorry, this ride was already accepted by another driver.",
+    //           });
+    //           return;
+    //         }
+
+    //         const [updatedRows] = await Ride.update(
+    //           { driverId: driverId },
+    //           {
+    //             where: { id: data.rideId },
+    //             transaction: t,
+    //           }
+    //         );
+
+    //         if (updatedRows > 0) {
+    //           await NotifiedDriver.update(
+    //             { status: "accepted" },
+    //             {
+    //               where: {
+    //                 rideRequestId: data.rideId,
+    //                 driverId: data.driverId,
+    //               },
+    //               transaction: t,
+    //             }
+    //           );
+
+    //           await Driver.update(
+    //             { onlineStatus: "ON_TRIP" },
+    //             {
+    //               where: { id: data.driverId },
+    //               transaction: t,
+    //             }
+    //           );
+
+    //           io.to(socket.id).emit("ride-accepted", {
+    //             rideId: data.rideId,
+    //             driverId: data.driverId,
+    //             message: "Your ride has been accepted!",
+    //           });
+
+    //           handleDriverAcceptance(data.rideId);
+
+    //           // Notify other drivers that the ride was accepted by another driver
+    //           const notifiedDrivers = await getNotifiedDriversForRide(
+    //             data.rideId
+    //           );
+    //           for (let otherDriver of notifiedDrivers) {
+    //             if (otherDriver.id !== data.driverId) {
+    //               io.to(otherDriver.id).emit("ride-accepted-by-other", {
+    //                 rideId: data.rideId,
+    //                 message: "ACCEPTED_BY_OTHER",
+    //               });
+    //             }
+    //           }
+    //         } else {
+    //           console.log(
+    //             `Driver ${data.driverId} attempted to accept the ride ${data.rideId}, but it was already accepted by another driver.`
+    //           );
+    //         }
+    //       });
+    //     } else if (data.status === "rejected") {
+    //       console.log(`Driver ${data.driverId} has rejected the ride.`);
+    //     }
+    //   } catch (error) {
+    //     console.error("Error processing driver-response:", error);
+    //   }
+    // });working 3
+    // Ensure updateDriverStatusForRide uses a transaction instance.
+
     socket.on("driver-response", async (data) => {
       try {
         const driverId = driverSocketMap[socket.id];
-        // Update the NotifiedDriver table status
-        await updateDriverStatusForRide(
-          data.rideId,
-          data.driverId,
-          data.status
-        );
 
         if (data.status === "accepted") {
           console.log(
             `Driver ${data.driverId} is attempting to accept the ride.`
           );
-          // Notify the user about the driver's acceptance
 
-          const [updatedCountForRide] = await Ride.update(
-            { driverId: driverId },
-            {
+          await sequelize.transaction(async (t) => {
+            // 1. Update driver's status for the ride within the transaction.
+            await updateDriverStatusForRide(
+              data.rideId,
+              data.driverId,
+              data.status,
+              t // Pass the transaction instance to your function
+            );
+
+            const existingRide = await Ride.findOne({
               where: {
                 id: data.rideId,
-                driverId: null, // Ensure that no driver has been assigned yet
+                driverId: null,
               },
-            }
-          );
+              lock: Transaction.LOCK.UPDATE,
+              transaction: t,
+            });
 
-          // If no ride rows were updated, then the ride was already accepted by someone else.
-          if (updatedCountForRide === 0) {
-            console.warn(
-              `Ride ${data.rideId} was already accepted by another driver.`
-            );
-            return; // Exit out of the function early
-          }
-
-          await NotifiedDriver.update(
-            { status: "accepted" },
-            {
-              where: {
-                rideRequestId: data.rideId,
-                driverId: data.driverId,
-              },
-            }
-          );
-
-          await Driver.update(
-            { onlineStatus: "ON_TRIP" },
-            { where: { id: data.driverId } }
-          );
-
-          console.log(
-            `Driver ${data.driverId} has successfully accepted the ride.`
-          );
-
-          // Now notify other drivers that the ride has been accepted by someone else
-          const notifiedDrivers = await getNotifiedDriversForRide(data.rideId);
-
-          // Now notify other drivers that the ride has been accepted by someone else
-          for (let otherDriver of notifiedDrivers) {
-            if (otherDriver.id !== data.driverId) {
-              // Don't notify the driver who accepted the ride
-              io.to(otherDriver.id).emit("ride-accepted-by-other", {
+            if (!existingRide) {
+              console.log(
+                `Ride ${data.rideId} was already accepted by another driver.`
+              );
+              io.to(socket.id).emit("ride-already-accepted", {
                 rideId: data.rideId,
-                message: "Ride accepted by another driver.",
+                message:
+                  "Sorry, this ride was already accepted by another driver.",
               });
+              return;
             }
-          }
 
-          io.to("available-drivers").emit("ride-accepted", {
-            rideId: data.rideId,
-            driverId: data.driverId,
-            message: "Your ride has been accepted!",
+            const [updatedRows] = await Ride.update(
+              { driverId: driverId },
+              {
+                where: { id: data.rideId },
+                transaction: t,
+              }
+            );
+
+            if (updatedRows > 0) {
+              await NotifiedDriver.update(
+                { status: "accepted" },
+                {
+                  where: {
+                    rideRequestId: data.rideId,
+                    driverId: data.driverId,
+                  },
+                  transaction: t,
+                }
+              );
+
+              await Driver.update(
+                { onlineStatus: "ON_TRIP" },
+                {
+                  where: { id: data.driverId },
+                  transaction: t,
+                }
+              );
+
+              io.to(socket.id).emit("ride-accepted", {
+                rideId: data.rideId,
+                driverId: data.driverId,
+                message: "Your ride has been accepted!",
+              });
+
+              handleDriverAcceptance(data.rideId);
+
+              // Notify other drivers that the ride was accepted by another driver
+              const notifiedDrivers = await getNotifiedDriversForRide(
+                data.rideId
+              );
+              for (let otherDriver of notifiedDrivers) {
+                if (otherDriver.id !== data.driverId) {
+                  io.to(otherDriver.id).emit("ride-accepted-by-other", {
+                    rideId: data.rideId,
+                    message: "ACCEPTED_BY_OTHER",
+                  });
+                }
+              }
+            } else {
+              console.log(
+                `Driver ${data.driverId} attempted to accept the ride ${data.rideId}, but it was already accepted by another driver.`
+              );
+            }
           });
-
-          handleDriverAcceptance(data.rideId);
         } else if (data.status === "rejected") {
           console.log(`Driver ${data.driverId} has rejected the ride.`);
-          // ... Your existing rejection handling code ...
+          // You might also want to handle the rejection within a transaction if necessary.
         }
       } catch (error) {
         console.error("Error processing driver-response:", error);
@@ -601,7 +716,8 @@ exports.broadcastRideRequestToAvailableDrivers = async (rideDetails) => {
   }
 
   const availableDrivers = await getAvailableDrivers(
-    rideDetails.pickupLocation
+    rideDetails.pickupLocation,
+    rideDetails.vehicleTypeId
   );
   delete rideDetails.drivers;
 
@@ -620,6 +736,15 @@ exports.broadcastRideRequestToAvailableDrivers = async (rideDetails) => {
             rideId: rideDetails.rideId,
             pickupLocation: rideDetails.pickupLocation,
             dropoffLocation: rideDetails.dropoffLocation,
+            pickupAddress: rideDetails.pickupAddress,
+            dropoffAddress: rideDetails.dropoffAddress,
+            pickupAddress: rideDetails.pickupAddress,
+            withCurrencySybolFare: rideDetails.withCurrencySybolFare,
+            timing: rideDetails.timing,
+            distance: rideDetails.distance,
+            profileImageUrl: rideDetails.profileImageUrl, // Added this
+            userRating: rideDetails.userRating,
+            userName: rideDetails.userName,
             // ... other fields as needed
           };
 
@@ -686,15 +811,50 @@ async function decideLocation(pickupLocation, dropoffLocation) {
   return "Other";
 }
 
-const getAvailableDrivers = async (pickupLocation, excludeDriverIds = []) => {
+// const getAvailableDrivers = async (pickupLocation, excludeDriverIds = []) => {
+//   return Driver.findAll({
+//     attributes: ["id", "fcmToken"],
+//     where: {
+//       id: { [Op.notIn]: excludeDriverIds },
+//       isAvailable: true,
+//       // onlineStatus: {
+//       //   [Op.not]: "ON_TRIP",
+//       // },
+//       [Op.and]: [
+//         Sequelize.where(
+//           Sequelize.fn(
+//             "ST_DWithin",
+//             Sequelize.col("location"),
+//             Sequelize.fn(
+//               "ST_SetSRID",
+//               Sequelize.fn(
+//                 "ST_MakePoint",
+//                 pickupLocation[0],
+//                 pickupLocation[1]
+//               ),
+//               4326
+//             ),
+//             10000
+//           ),
+//           true
+//         ),
+//       ],
+//     },
+//     limit: 30,
+//   });
+// };
+const getAvailableDrivers = async (
+  pickupLocation,
+  vehicleTypeId,
+  excludeDriverIds = []
+) => {
   return Driver.findAll({
-    attributes: ["id", "fcmToken"],
     where: {
       id: { [Op.notIn]: excludeDriverIds },
       isAvailable: true,
-      // onlineStatus: {
-      //   [Op.not]: "ON_TRIP",
-      // },
+      onlineStatus: {
+        [Op.not]: "ON_TRIP",
+      },
       [Op.and]: [
         Sequelize.where(
           Sequelize.fn(
@@ -715,7 +875,16 @@ const getAvailableDrivers = async (pickupLocation, excludeDriverIds = []) => {
         ),
       ],
     },
-    limit: 10,
+    include: [
+      {
+        model: Vehicle, // Assuming you have the vehicle model initialized and available
+        as: "vehicle", // You may need to check the actual alias you have in your setup.
+        where: {
+          vehicleTypeId: vehicleTypeId,
+        },
+      },
+    ],
+    limit: 30,
   });
 };
 async function getNotifiedDriversForRide(rideId) {
@@ -747,6 +916,31 @@ function calculateDriverEarnings(actualFare) {
   const driverPercentage = 0.8;
   return actualFare * driverPercentage;
 }
+function formatAmount(amount, symbol) {
+  return `${symbol}${amount.toFixed(2)}`; // assuming you want two decimal places
+}
+function getUnitByCurrency(currencyCode) {
+  const milesCurrencies = ["USD", "GBP"];
+  return milesCurrencies.includes(currencyCode) ? "miles" : "km";
+}
+function formatDistance(distance, unit = "km") {
+  console.log(typeof distance, distance);
+  if (unit === "miles") {
+    distance = distance * 0.621371; // Convert kilometers to miles
+    return `${distance.toFixed(2)} miles`;
+  }
+  // Default to kilometers
+  return `${distance.toFixed(2)} km`;
+}
+
+const parseLocation = (locationString) => {
+  const matches = locationString.match(/\((-?\d+\.\d+),\s*(-?\d+\.\d+)\)/);
+  if (matches && matches.length === 3) {
+    return [parseFloat(matches[2]), parseFloat(matches[1])]; // Note that we're switching the order to [long, lat]
+  } else {
+    throw new Error("Invalid location format");
+  }
+};
 async function removeInvalidTokenFromDatabase(fcmToken) {
   try {
     await Driver.destroy({

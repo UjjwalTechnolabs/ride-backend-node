@@ -5,6 +5,7 @@ const twilio = require("twilio");
 const SuccessResponse = require("../../utils/successResponse");
 const ErrResponse = require("../../utils/errorResponse");
 const APP_HASH = "ahELDm9mnOx";
+const APP_HASH_USER = "SoqMFYWBsvO";
 const client = twilio(
   process.env.TWILIO_ACCOUNT_SID,
   process.env.TWILIO_AUTH_TOKEN
@@ -23,6 +24,27 @@ exports.registerRequestOTP = async (req, res) => {
 
     await client.messages.create({
       body: `<#> RolaRide OTP: ${otp} for account safety ${APP_HASH}. Remember, it's important not to share your OTP to prevent potential security breaches.`,
+      from: process.env.TWILIO_PHONE_NUMBER,
+      to: fullNumber,
+    });
+
+    // Store the OTP in the OTPTable temporarily for verification.
+    await OTPTable.upsert({ phoneNumber: fullNumber, verificationCode: otp });
+
+    new SuccessResponse(200, "OTP sent. Please verify.").send(res);
+  } catch (error) {
+    new ErrResponse(500, "Internal server error", error.message).send(res);
+  }
+};
+exports.registerRequestOTPUser = async (req, res) => {
+  try {
+    const { phoneNumber, countryCode } = req.body;
+    const fullNumber = countryCode + phoneNumber;
+
+    const otp = generateOTP();
+
+    await client.messages.create({
+      body: `<#> RolaRide OTP: ${otp} for account safety ${APP_HASH_USER}. Remember, it's important not to share your OTP to prevent potential security breaches.`,
       from: process.env.TWILIO_PHONE_NUMBER,
       to: fullNumber,
     });

@@ -79,7 +79,8 @@ exports.calculateFare = async function (
 
   // Convert to User Preferred Currency
   let convertedFare = totalFare * userPreferredCurrency.exchangeRate;
-  console.log(convertedFare);
+  convertedFare = Math.ceil(convertedFare);
+
   console.log("Converted Fare in", userCurrencyCode, ":", convertedFare);
   return convertedFare;
 };
@@ -125,16 +126,19 @@ exports.calculateETA = async function (pickupLocation, dropoffLocation) {
       });
   });
 };
+
 exports.calculateETAFinal = async function (pickupLocation, dropoffLocation) {
   console.log("pickupLocation:" + pickupLocation);
   console.log("dropoffLocation:" + dropoffLocation);
+
   return new Promise((resolve, reject) => {
     const origin = `${pickupLocation[1]},${pickupLocation[0]}`;
-    const destination = `${dropoffLocation[0]},${dropoffLocation[1]}`;
+    const destination = `${dropoffLocation[1]},${dropoffLocation[0]}`;
     const apiKey = "AIzaSyBLmcwFlQ68ZbfyQXTQql8Im8AO-aofTy4";
 
     const url = `https://maps.googleapis.com/maps/api/distancematrix/json?departure_time=now&destinations=${destination}&key=${apiKey}&mode=driving&origins=${origin}&traffic_model=best_guess`;
     console.log(url);
+
     https
       .get(url, (res) => {
         let data = "";
@@ -153,16 +157,30 @@ exports.calculateETAFinal = async function (pickupLocation, dropoffLocation) {
             const etaSeconds =
               responseData.rows[0].elements[0].duration_in_traffic.value;
             const etaMins = etaSeconds / 60;
-            resolve(Math.round(etaMins));
+
+            const distanceMeters =
+              responseData.rows[0].elements[0].distance.value;
+            const distanceKm = distanceMeters / 1000;
+
+            resolve({
+              eta: Math.round(etaMins),
+              distance: distanceKm.toFixed(2), // keeping two decimal places
+            });
           } else {
             console.error("Unexpected Google Maps API response:", responseData);
-            resolve(NaN);
+            resolve({
+              eta: NaN,
+              distance: NaN,
+            });
           }
         });
       })
       .on("error", (err) => {
         console.error("Error fetching ETA from Google Maps:", err);
-        resolve(NaN);
+        resolve({
+          eta: NaN,
+          distance: NaN,
+        });
       });
   });
 };
